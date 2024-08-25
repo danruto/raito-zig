@@ -1,7 +1,10 @@
 const std = @import("std");
 const rem = @import("rem");
 
-pub fn main() !void {
+const css_parser = @import("css_parser.zig");
+
+fn old() !void {
+
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
@@ -158,9 +161,50 @@ pub fn main() !void {
     }
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
+
+    const input = @embedFile("chap.html");
+    @setEvalBranchQuota(100000);
+    const decoded_input = &rem.util.utf8DecodeStringComptime(input);
+
+    // Create the DOM in which the parsed Document will be created.
+    var dom = rem.Dom{ .allocator = allocator };
+    defer dom.deinit();
+
+    // Create the HTML parser.
+    var parser = try rem.Parser.init(&dom, decoded_input, allocator, .report, false);
+    defer parser.deinit();
+
+    // This causes the parser to read the input and produce a Document.
+    try parser.run();
+
+    // `errors` returns the list of parse errors that were encountered while parsing.
+    // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
+    const errors = parser.errors();
+    std.debug.assert(errors.len == 0);
+
+    // We can now print the resulting Document to the console.
+    const document = parser.getDocument();
+
+    if (document.element) |document_element| {
+        // Create an arena around the allocator to free once we have completed parsing
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        const arena_allocator = arena.allocator();
+        defer arena.deinit();
+
+        const css_parser_instance = try css_parser.init(arena_allocator, document_element);
+        _ = css_parser_instance;
+
+        const css_selector = try css_parser.CSSSelector.init(arena_allocator,
+            \\div[class="txt "]>#article>p
+        );
+        try css_selector.print();
+    }
+}
+
+test "test all" {
+    @import("std").testing.refAllDecls(@This());
 }
