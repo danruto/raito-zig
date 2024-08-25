@@ -48,7 +48,7 @@ fn old() !void {
 
     // We can now print the resulting Document to the console.
     const document = parser.getDocument();
-    // try rem.util.printDocument(stdout_file, document, &dom, allocator);
+    try rem.util.printDocument(stdout_file, document, &dom, allocator);
 
     // css selector subset
     // scan until we find first parent if possible
@@ -199,10 +199,12 @@ pub fn main() !void {
         _ = css_parser_instance;
 
         const css_selector = try css_parser.CSSSelector.init(arena_allocator,
-            \\div[class="txt "]>#article>p
+            \\span.chapter
         );
         try css_selector.print();
     }
+
+    try old();
 }
 
 test "test all" {
