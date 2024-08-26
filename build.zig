@@ -37,6 +37,10 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.addImport("rem", b.dependency("rem", .{ .target = target, .optimize = optimize }).module("rem"));
+    exe.root_module.addImport("zul", b.dependency("zul", .{ .target = target, .optimize = optimize }).module("zul"));
+    exe.root_module.addImport("zqlite", b.dependency("zqlite", .{ .target = target, .optimize = optimize }).module("zqlite"));
+    exe.root_module.addImport("logz", b.dependency("logz", .{ .target = target, .optimize = optimize }).module("logz"));
+    exe.root_module.addImport("tuile", b.dependency("tuile", .{ .target = target, .optimize = optimize }).module("tuile"));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -83,6 +87,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe_unit_tests.root_module.addImport("rem", b.dependency("rem", .{ .target = target, .optimize = optimize }).module("rem"));
+    exe_unit_tests.root_module.addImport("tuile", b.dependency("tuile", .{ .target = target, .optimize = optimize }).module("tuile"));
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
