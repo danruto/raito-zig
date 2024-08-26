@@ -244,8 +244,13 @@ pub const CSSSelector = struct {
     }
 };
 
+const CSSDomNode = struct {
+    element: ?*const rem.Dom.Element,
+    text: ?[]const u8,
+};
+
 // Caller owns the memory and is responsible for freeing
-pub fn parse(self: *const CSSParser, allocator: Allocator, selector: []const u8) !?*const rem.Dom.Element {
+pub fn parse(self: *const CSSParser, allocator: Allocator, selector: []const u8) !?CSSDomNode {
     var css_selector = try CSSSelector.init(allocator, selector);
     defer css_selector.nodes.deinit(allocator);
     try css_selector.print();
@@ -260,7 +265,7 @@ pub fn parse(self: *const CSSParser, allocator: Allocator, selector: []const u8)
 
     var final_node: ?*const rem.Dom.Element = null;
 
-    std.debug.print("Entering cssparser.parse with {d} nodes\n", .{node_stack.items.len});
+    std.debug.print("\nEntering cssparser.parse with {d} nodes\n", .{node_stack.items.len});
 
     while (node_stack.items.len > 0) {
         if (css_selector_node_index >= css_selector.nodes.items.len) {
@@ -293,7 +298,7 @@ pub fn parse(self: *const CSSParser, allocator: Allocator, selector: []const u8)
                 if (process_for_selector_node) {
                     var match = true;
 
-                    std.debug.print("Processing for selector et:{any}, cn:{?s}, id:{?s} using et:{any} e:{any}\n", .{ css_selector_node.element_type, css_selector_node.class_name, css_selector_node.id, element.element_type, element });
+                    std.debug.print("Processing for selector et:{any}, cn:{?s}, id:{?s} using et:{any} \n", .{ css_selector_node.element_type, css_selector_node.class_name, css_selector_node.id, element.element_type });
 
                     if (css_selector_node.id) |id| {
                         if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "id" })) |e_id| {
@@ -339,25 +344,41 @@ pub fn parse(self: *const CSSParser, allocator: Allocator, selector: []const u8)
                     }
 
                     if (match) {
+                        std.debug.print("\tMatch found, saving element\n", .{});
                         // It matched everything we were looking for, save it
                         final_node = element;
 
                         // Bump the index if there are children to keep processing
                         css_selector_node_index += 1;
+                    } else {
+                        std.debug.print("\tNo match found, continuing...\n", .{});
                     }
 
                     // Add children to node_stack
                     append_children = true;
                 }
 
-                if (append_children) {
-                    std.debug.print("Appending children\n", .{});
+                if (css_selector_node_index < css_selector.nodes.items.len and append_children) {
+                    var num_children = element.children.items.len;
+                    std.debug.print("\tAbout to append up to {d} children at selector index {d}\n", .{ num_children, css_selector_node_index });
+                    while (num_children > 0) : (num_children -= 1) {
+                        switch (element.children.items[num_children - 1]) {
+                            .element => |c| {
+                                const node = ConstElementOrCharacterData{ .element = c };
+                                try node_stack.append(allocator, .{ .node = node, .depth = item.depth + 1 });
+                            },
+                            else => {},
+                        }
+                    }
+                }
+
+                if (css_selector_node_index == css_selector.nodes.items.len) {
+                    std.debug.print("\tAppending cdata for final node\n", .{});
                     var num_children = element.children.items.len;
                     while (num_children > 0) : (num_children -= 1) {
                         switch (element.children.items[num_children - 1]) {
-                            .element => |ce| {
-                                const node = ConstElementOrCharacterData{ .element = ce };
-
+                            .cdata => |c| {
+                                const node = ConstElementOrCharacterData{ .cdata = c };
                                 try node_stack.append(allocator, .{ .node = node, .depth = item.depth + 1 });
                             },
                             else => {},
@@ -365,12 +386,47 @@ pub fn parse(self: *const CSSParser, allocator: Allocator, selector: []const u8)
                     }
                 }
             },
-            // Effectively unreachable
+            // Effectively unreachable, we don't prcoess anything to do with cdata
             else => {},
         }
     }
 
-    return final_node;
+    // If we have valid enough data to return, that is, we have a `final_node`
+    // then generate the return pointers
+    var ret: ?CSSDomNode = null;
+
+    if (final_node != null) {
+        ret = .{
+            .element = final_node,
+            .text = null,
+        };
+    }
+
+    // If this is the final item in the stack and it is a cdata, save it
+    if (ret != null and node_stack.items.len > 0) {
+        while (node_stack.items.len > 0) {
+            const cdata_item = node_stack.pop();
+
+            switch (cdata_item.node) {
+                .cdata => |cd| {
+                    switch (cd.interface) {
+                        .text => {
+                            // There should only be 1 text node as a child
+                            if (ret.?.text == null) {
+                                ret.?.text = std.zig.fmtEscapes(cd.data.items).data;
+                            } else {
+                                std.debug.print("\tSomehow we have more .text types", .{});
+                            }
+                        },
+                        else => {},
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
+    return ret;
 }
 
 // test "fwn selectors" {
@@ -424,18 +480,24 @@ test "css parser find the matching element" {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         const arena_allocator = arena.allocator();
         defer arena.deinit();
-        const element = try css_parser.parse(arena_allocator, "div#article>p");
-        if (element) |e| {
-            // std.debug.print("Element: {any}\n", .{e});
-            const num = e.numAttributes();
-            for (0..num) |idx| {
-                const a = e.attributes.get(idx);
-                std.debug.print("\tAttribute: ({s})=({s})\n", .{ a.key.local_name, a.value });
+        const node = try css_parser.parse(arena_allocator, "div#article>p");
+        if (node) |n| {
+            if (n.element) |e| {
+                // std.debug.print("Element: {any}\n", .{e});
+                const num = e.numAttributes();
+                for (0..num) |idx| {
+                    const a = e.attributes.get(idx);
+                    std.debug.print("\tAttribute: ({s})=({s})\n", .{ a.key.local_name, a.value });
+                }
+                // TODO: cdata contains the element text
+                // but for now we will just avoid anything that needs it
+                // until it becomes a problem
+                // std.debug.print("Value: {any}", .{e});
             }
-            // TODO: cdata contains the element text
-            // but for now we will just avoid anything that needs it
-            // until it becomes a problem
-            // std.debug.print("Value: {any}", .{e});
+
+            if (n.text) |t| {
+                std.debug.print("\tText: {s}", .{t});
+            }
         }
     }
 }
