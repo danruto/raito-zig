@@ -87,6 +87,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe_unit_tests.root_module.addImport("rem", b.dependency("rem", .{ .target = target, .optimize = optimize }).module("rem"));
+    exe_unit_tests.root_module.addImport("zul", b.dependency("zul", .{ .target = target, .optimize = optimize }).module("zul"));
     exe_unit_tests.root_module.addImport("tuile", b.dependency("tuile", .{ .target = target, .optimize = optimize }).module("tuile"));
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);

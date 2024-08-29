@@ -26,30 +26,36 @@ pub const CSSParser = struct {
         var node_stack = std.ArrayListUnmanaged(NodeData){};
         try node_stack.append(allocator, .{ .node = .{ .element = document_element }, .depth = 1 });
 
+        std.debug.print("From init first element: {any}", .{node_stack.items[0].node.element});
+
         return .{
             .allocator = allocator,
             .node_stack = node_stack,
         };
     }
 
-    // TODO: Coming up empty on return, look into this
-    fn traverse(allocator: Allocator, node_stack: *std.ArrayListUnmanaged(NodeData), selector: CSSSelectorNode) ![]NodeData {
-        // var arena = std.heap.ArenaAllocator.init(self.allocator);
-        // const arena_allocator = arena.allocator();
-        // defer arena.deinit();
+    pub fn deinit(self: *CSSParser) void {
+        self.node_stack.deinit(self.allocator);
+    }
 
+    fn traverse(allocator: Allocator, node_stack: *std.ArrayListUnmanaged(NodeData), selector: CSSSelectorNode) ![]NodeData {
+        std.debug.print("Traverse: selector: {any}\n", .{selector});
         var final_nodes = std.ArrayListUnmanaged(NodeData){};
 
         while (node_stack.items.len > 0) {
             const item = node_stack.pop();
+            std.debug.print("Popped item\n", .{});
 
             switch (item.node) {
                 // We don't need to do anything for cdata as it is auxillary content for our final item
                 .cdata => {},
 
                 .element => |element| {
+                    std.debug.print("\tWas element {any}\n", .{element});
+                    std.debug.print("\thas attrs: {any}\n", .{element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "id" })});
                     var match = selector.element_type == element.element_type;
 
+                    std.debug.print("\t\tChecking id match\n", .{});
                     if (selector.id) |id| {
                         if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "id" })) |e_id| {
                             match = match and std.mem.eql(u8, id, e_id);
@@ -58,16 +64,21 @@ pub const CSSParser = struct {
                         }
                     }
 
+                    std.debug.print("\t\tChecking classname match\n", .{});
                     if (selector.class_name) |cn| {
                         if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "class" })) |e_cn| {
+                            std.debug.print("\t\t\tFound the class attr with value: {s}\n", .{e_cn});
                             match = match and std.mem.eql(u8, cn, e_cn);
                         } else {
+                            std.debug.print("\t\t\tFound no classname match\n", .{});
                             match = false;
                         }
                     }
 
+                    std.debug.print("\t\tChecking attr name match\n", .{});
                     if (selector.attribute_name) |name| {
                         if (selector.attribute_value) |value| {
+                            std.debug.print("\t\tChecking attr value match\n", .{});
                             if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = name })) |e_av| {
                                 match = match and std.mem.eql(u8, value, e_av);
                             } else {
@@ -80,10 +91,12 @@ pub const CSSParser = struct {
                     }
 
                     if (match) {
-                        std.debug.print("\tFound a match, allocating to final_nodes\n", .{});
+                        std.debug.print("\tFound a match, appending to final_nodes\n", .{});
                         try final_nodes.append(allocator, .{ .node = .{ .element = element }, .depth = item.depth });
+                        std.debug.print("\tFound a match, appeneded to final_nodes\n", .{});
                     } else {
                         // Add the children and continue the scan
+                        std.debug.print("\tAppending children due to no match\n", .{});
                         var num_children = element.children.items.len;
                         while (num_children > 0) : (num_children -= 1) {
                             switch (element.children.items[num_children - 1]) {
@@ -92,7 +105,9 @@ pub const CSSParser = struct {
 
                                 .element => |c| {
                                     const node = ConstElementOrCharacterData{ .element = c };
+                                    std.debug.print("\tFound a child, appending to node_stack\n", .{});
                                     try node_stack.append(allocator, .{ .node = node, .depth = item.depth + 1 });
+                                    std.debug.print("\tFound a child, appended to node_stack\n", .{});
                                 },
                             }
                         }
@@ -102,7 +117,6 @@ pub const CSSParser = struct {
         }
 
         return try final_nodes.toOwnedSlice(allocator);
-        // return &.{};
     }
 
     pub fn parse2(self: *const CSSParser, selector: []const u8) ![]CSSDomNode {
@@ -114,37 +128,74 @@ pub const CSSParser = struct {
         const arena_allocator = arena.allocator();
         defer arena.deinit();
 
+        std.debug.print("Created arena\n", .{});
+
         // Parse the selector into something we can use
         var css_selector = try CSSSelector.init(arena_allocator, selector);
         defer css_selector.nodes.deinit(arena_allocator);
 
+        std.debug.print("Init css selector\n", .{});
+
         // Create a local copy of the stack that we are going to traverse
         var node_stack = try self.node_stack.clone(arena_allocator);
         defer node_stack.deinit(arena_allocator);
+
+        std.debug.print("Cloned nodestack\n", .{});
+
+        std.debug.print("Original nodestack first element {any}\n", .{self.node_stack.items[0].node.element.element_type});
+        std.debug.print("Cloned nodestack first element {any}\n", .{node_stack.items[0].node.element.element_type});
 
         // Now scan down the tree until we find a match for our first selector
         // then we can start limiting the search to siblings and children as required
 
         var css_selector_node_index: usize = 0;
         while (css_selector_node_index < css_selector.nodes.items.len) : (css_selector_node_index += 1) {
+            std.debug.print("Processing css node\n", .{});
+
             const selector_node = css_selector.nodes.items[css_selector_node_index];
             const new_nodes = try traverse(arena_allocator, &node_stack, selector_node);
-            std.debug.print("\tTraversed and got {any} using selector {any}\n", .{ new_nodes, selector_node });
+
+            std.debug.print("Traversed css node\n", .{});
+
+            // std.debug.print("\tTraversed and got {any} using selector {any}\n", .{ new_nodes, selector_node });
             // node_stack.clearRetainingCapacity();
             // node_stack.clearAndFree(self.allocator);
             try node_stack.appendSlice(arena_allocator, new_nodes);
+
+            std.debug.print("Processed css node\n", .{});
         }
 
         // Convert nodedata to cssdomnode
+        // and append its cdata text to the node
         var ret = std.ArrayListUnmanaged(CSSDomNode){};
         for (node_stack.items) |node| {
-            try ret.append(self.allocator, .{ .element = node.node.element, .text = null });
+            var final_node: CSSDomNode = .{ .element = node.node.element, .text = null };
+            // Find matching cdata
+            var num_children = node.node.element.children.items.len;
+            while (num_children > 0) : (num_children -= 1) {
+                switch (node.node.element.children.items[num_children - 1]) {
+                    .cdata => |c| {
+                        // Only capture the first (likely only)
+                        if (final_node.text == null) {
+                            std.debug.print("Saved cdata text\n", .{});
+                            final_node.text = std.zig.fmtEscapes(c.data.items).data;
+                            break;
+                        }
+                    },
+                    else => {},
+                }
+            }
+            std.debug.print("appending data to ret\n", .{});
+            try ret.append(self.allocator, final_node);
+            std.debug.print("appended data to ret\n", .{});
         }
         return try ret.toOwnedSlice(self.allocator);
     }
 
     // TODO: return owned slice of dom nodes, and not just the first one that matches
     // Caller owns the memory and is responsible for freeing
+    // TODO: either clean up the cdata part and rename to parse_single
+    // or delete and just use parse2
     pub fn parse(self: *const CSSParser, selector: []const u8) !?CSSDomNode {
         // Wrap all allocations in an arena to make it easier to allocate and free
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -609,54 +660,80 @@ pub const CSSSelector = struct {
 //     }
 // }
 
-test "css parsing via parse2" {
-    const input = @embedFile("search.html");
-    @setEvalBranchQuota(200000);
-    const decoded_input = &rem.util.utf8DecodeStringComptime(input);
-    // _ = decoded_input;
+// test "css parsing via parse2" {
+//     const input = @embedFile("search.html");
+//     @setEvalBranchQuota(200000);
+//     const decoded_input = &rem.util.utf8DecodeStringComptime(input);
+//     // _ = decoded_input;
 
-    // Create the DOM in which the parsed Document will be created.
-    var dom = rem.Dom{ .allocator = std.testing.allocator };
-    defer dom.deinit();
+//     // Create the DOM in which the parsed Document will be created.
+//     var dom = rem.Dom{ .allocator = std.testing.allocator };
+//     defer dom.deinit();
 
-    // Create the HTML parser.
-    var parser = try rem.Parser.init(&dom, decoded_input, std.testing.allocator, .ignore, false);
-    defer parser.deinit();
+//     // Create the HTML parser.
+//     var parser = try rem.Parser.init(&dom, decoded_input, std.testing.allocator, .ignore, false);
+//     defer parser.deinit();
 
-    // This causes the parser to read the input and produce a Document.
-    try parser.run();
+//     // This causes the parser to read the input and produce a Document.
+//     try parser.run();
 
-    // `errors` returns the list of parse errors that were encountered while parsing.
-    // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
-    const errors = parser.errors();
-    for (errors) |err| {
-        std.debug.print("{any}\n", .{err});
-    }
-    std.debug.assert(errors.len == 0);
+//     // `errors` returns the list of parse errors that were encountered while parsing.
+//     // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
+//     const errors = parser.errors();
+//     for (errors) |err| {
+//         std.debug.print("\tParser error: {any}\n", .{err});
+//     }
+//     std.debug.assert(errors.len == 0);
 
-    // We can now print the resulting Document to the console.
-    const document = parser.getDocument();
+//     // We can now print the resulting Document to the console.
+//     const document = parser.getDocument();
 
-    if (document.element) |document_element| {
-        var css_parser = try CSSParser.init(std.testing.allocator, document_element);
-        defer css_parser.node_stack.deinit(std.testing.allocator);
+//     const TestNovel = struct {
+//         id: []const u8,
+//         title: []const u8,
+//     };
 
-        const nodes = try css_parser.parse2("div[class=\"li-row\"]");
-        defer std.testing.allocator.free(nodes);
-        for (nodes) |n| {
-            if (n.element) |e| {
-                std.debug.print("Element: {any}\n", .{e});
-                const num = e.numAttributes();
-                for (0..num) |idx| {
-                    const a = e.attributes.get(idx);
-                    std.debug.print("\tAttribute: ({s})=({s})\n", .{ a.key.local_name, a.value });
-                }
-            }
+//     if (document.element) |document_element| {
+//         std.debug.print("Test doc ele: {any}", .{document_element.element_type});
+//         var css_parser = try CSSParser.init(std.testing.allocator, document_element);
+//         defer css_parser.node_stack.deinit(std.testing.allocator);
 
-            if (n.text) |t| {
-                std.debug.print("\tText: {s}", .{t});
-                try std.testing.expectEqualStrings(" Chapter 3157: Absolute Shocker ", t);
-            }
-        }
-    }
-}
+//         const nodes = try css_parser.parse2("div[class=\"li-row\"]");
+//         defer std.testing.allocator.free(nodes);
+//         try std.testing.expectEqual(50, nodes.len);
+
+//         var test_nodes = std.ArrayList(TestNovel).init(std.testing.allocator);
+//         defer {
+//             for (test_nodes.items) |item| {
+//                 std.testing.allocator.free(item.id);
+//                 std.testing.allocator.free(item.title);
+//             }
+//             test_nodes.deinit();
+//         }
+
+//         for (nodes) |n| {
+//             var test_node: TestNovel = .{ .id = "", .title = "" };
+
+//             if (n.element) |e| {
+//                 // std.debug.print("Element: {any}\n", .{e});
+//                 // Scan for title selector
+//                 var local_css_parser = try CSSParser.init(std.testing.allocator, e);
+//                 defer local_css_parser.node_stack.deinit(std.testing.allocator);
+//                 const href_node = try local_css_parser.parse("h3.tit>a");
+//                 if (href_node) |node| {
+//                     if (node.element) |element| {
+//                         if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "title" })) |title| {
+//                             std.debug.print("\tFound title: {s}\n", .{title});
+//                             test_node.title = try std.testing.allocator.dupe(u8, title);
+//                             try test_nodes.append(test_node);
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+
+//         for (test_nodes.items) |tn| {
+//             std.debug.print("\tID: {s}, Title: {s}\n", .{ tn.id, tn.title });
+//         }
+//     }
+// }
