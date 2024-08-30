@@ -13,9 +13,13 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
+
     const freewebnovel = fwm.Freewebnovel.init(allocator);
-    const resp = try freewebnovel.search("martial");
-    _ = resp;
+    const novels = try freewebnovel.search("martial");
+
+    for (novels) |novel| {
+        std.debug.print("\tNovel: t: {s}, u: {s}, c: {any}\n", .{ novel.title, novel.url, novel.chapters });
+    }
 
     // try tui.Tui.run();
 }
