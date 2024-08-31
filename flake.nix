@@ -21,6 +21,7 @@
           zig
           zls
           just
+          valgrind
         ];
         LD_LIBRARY_PATH = "${lib.makeLibraryPath buildInputs}";
       };

@@ -27,6 +27,22 @@
             .url = "git+https://github.com/chadwain/rem.git#68dcb476a9090c9bbe0044dd26914ee1266924ed",
             .hash = "1220da547f973ec198c5a56c6a0c638c915d5d756209f66ef0f281948d4ac1bf6725",
         },
+        .zul = .{
+            .url = "https://github.com/karlseguin/zul/archive/master.tar.gz",
+            .hash = "1220457e2c8867f6734520d9b335f01e1d851d6fe7adaa7f6f0756158acaf6c5e87f",
+        },
+        .zqlite = .{
+            .url = "git+https://github.com/karlseguin/zqlite.zig#master",
+            .hash = "1220321cdb273d1f6e90b04fc747cae49dac1ae3d7db4125f590d2c0df5c4aadcc88",
+        },
+        .logz = .{
+            .url = "https://github.com/karlseguin/log.zig/archive/master.tar.gz",
+            .hash = "1220a267bbb2165749fd6574cd2729aa70dd3cbbf74c8825b97334b22d9b2385ec3f",
+        },
+        .tuile = .{
+            .url = "https://github.com/akarpovskii/tuile/archive/refs/tags/v0.1.3.tar.gz",
+            .hash = "122097cec88e4270a2f14d1bcb85120cbe9a754c42faf5ad5a909c4f1d972e1c1f6c",
+        },
     },
     .paths = .{
         "build.zig",
