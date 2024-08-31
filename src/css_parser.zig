@@ -1,3 +1,6 @@
+// TODO: Managed and Unmanaged versions
+// currently all basically unmanaged.
+
 const std = @import("std");
 const rem = @import("rem");
 

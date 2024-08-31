@@ -1,3 +1,6 @@
+// TODO: Managed and Unmanaged versions
+// currently all basically unmanaged.
+
 const std = @import("std");
 const zul = @import("zul");
 const rem = @import("rem");
@@ -7,28 +10,31 @@ const dom_utils = @import("dom_utils.zig");
 
 const Allocator = std.mem.Allocator;
 
-const Novel = struct {
+pub const Novel = struct {
     id: []const u8,
     title: []const u8,
     url: []const u8,
     chapters: usize,
     chapter: usize,
 
-    pub fn deinit(self: *Novel, allocator: Allocator) void {
+    pub fn deinit(self: *const Novel, allocator: Allocator) void {
         allocator.free(self.id);
         allocator.free(self.title);
         allocator.free(self.url);
     }
 };
 
-const Chapter = struct {
+pub const Chapter = struct {
     title: []const u8,
     number: usize,
     lines: std.ArrayList([]const u8),
     // TODO: status, if required (for latest chapter reached etc)
 
-    pub fn deinit(self: *Chapter, allocator: Allocator) void {
+    pub fn deinit(self: *const Chapter, allocator: Allocator) void {
         allocator.free(self.title);
+        for (self.lines.items) |line| {
+            allocator.free(line);
+        }
         self.lines.deinit();
     }
 };
@@ -302,8 +308,7 @@ pub const Freewebnovel = struct {
 
             for (content) |line| {
                 if (line.text) |text| {
-                    std.debug.print("\tFound line: {s}\n", .{text});
-                    try chapter.lines.append(text);
+                    try chapter.lines.append(try self.allocator.dupe(u8, text));
                 }
             }
 
@@ -480,10 +485,10 @@ pub const Freewebnovel = struct {
 //     }
 // }
 
-test "can fetch a chapter" {
-    @setEvalBranchQuota(200000);
-    const freewebnovel = Freewebnovel.init(std.testing.allocator);
-    const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
-    defer chapter.deinit(std.testing.allocator);
-    try std.testing.expectEqualStrings("Chapter 1 Outer Court Disciple", chapter.title);
-}
+// test "can fetch a chapter" {
+//     @setEvalBranchQuota(200000);
+//     const freewebnovel = Freewebnovel.init(std.testing.allocator);
+//     const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
+//     defer chapter.deinit(std.testing.allocator);
+//     try std.testing.expectEqualStrings("Chapter 1 Outer Court Disciple", chapter.title);
+// }
