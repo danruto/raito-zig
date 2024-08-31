@@ -31,33 +31,67 @@ fn generateMultilineSpan2(allocator: Allocator, lines: [][]const u8) !tuile.Span
 
 const TuiEventContext = struct {
     tui: *tuile.Tuile,
-    lines: *const std.ArrayList([]const u8),
-    offset: usize,
-    allocator: *const Allocator,
+    arena: *const Allocator,
+    gpa: *const Allocator,
+    provider: *const fwn.Freewebnovel,
+
     span: *tuile.Span,
 
-    pub fn scrollDown(self: *TuiEventContext) tuile.events.EventResult {
+    chapter: *fwn.Chapter,
+    offset: usize,
+
+    pub fn scrollDown(self: *TuiEventContext) !tuile.events.EventResult {
         if (self.tui.findByIdTyped(tuile.Label, "view")) |view| {
-            if (self.offset + 1 < self.lines.items.len) {
-                self.*.span.*.deinit();
-                var span = try generateMultilineSpan2(self.allocator.*, self.lines.items[self.offset + 1 ..]);
-                self.*.span.* = span;
-                self.*.offset += 1;
+            if (self.offset + 1 < self.chapter.lines.items.len) {
+                self.span.*.deinit();
+                var span = try generateMultilineSpan2(self.arena.*, self.chapter.lines.items[self.offset + 1 ..]);
+                self.span.* = span;
+                self.offset += 1;
                 try view.setSpan(span.view());
             }
         }
         return .consumed;
     }
 
-    pub fn scrollUp(self: *TuiEventContext) tuile.events.EventResult {
+    pub fn scrollUp(self: *TuiEventContext) !tuile.events.EventResult {
         if (self.tui.findByIdTyped(tuile.Label, "view")) |view| {
             if (self.offset > 0) {
-                self.*.span.*.deinit();
-                var span = try generateMultilineSpan2(self.allocator.*, self.lines.items[self.offset - 1 ..]);
-                self.*.span.* = span;
-                self.*.offset -= 1;
+                self.span.*.deinit();
+                var span = try generateMultilineSpan2(self.arena.*, self.chapter.lines.items[self.offset - 1 ..]);
+                self.span.* = span;
+                self.offset -= 1;
                 try view.setSpan(span.view());
             }
+        }
+        return .consumed;
+    }
+
+    pub fn prevChapter(self: *TuiEventContext) !tuile.events.EventResult {
+        if (self.tui.findByIdTyped(tuile.Label, "view")) |view| {
+            const number = self.chapter.number - 1;
+            self.chapter.deinit(self.gpa.*);
+            const chapter = try self.provider.sample_chapter(number);
+            self.chapter.* = chapter;
+            self.offset = 0;
+            self.span.*.deinit();
+            var span = try generateMultilineSpan2(self.arena.*, self.chapter.lines.items[self.offset..]);
+            self.span.* = span;
+            try view.setSpan(span.view());
+        }
+        return .consumed;
+    }
+
+    pub fn nextChapter(self: *TuiEventContext) !tuile.events.EventResult {
+        if (self.tui.findByIdTyped(tuile.Label, "view")) |view| {
+            const number = self.chapter.number + 1;
+            self.chapter.deinit(self.gpa.*);
+            const chapter = try self.provider.sample_chapter(number);
+            self.chapter.* = chapter;
+            self.offset = 0;
+            self.span.*.deinit();
+            var span = try generateMultilineSpan2(self.arena.*, self.chapter.lines.items[self.offset..]);
+            self.span.* = span;
+            try view.setSpan(span.view());
         }
         return .consumed;
     }
@@ -95,10 +129,19 @@ pub const Tui = struct {
             .char => |char| {
                 switch (char) {
                     'j' => {
-                        return ctx.scrollDown();
+                        return try ctx.scrollDown();
                     },
                     'k' => {
-                        return ctx.scrollUp();
+                        return try ctx.scrollUp();
+                    },
+                    'h' => {
+                        return try ctx.prevChapter();
+                    },
+                    'l' => {
+                        return try ctx.nextChapter();
+                    },
+                    'p' => {
+                        @panic("See mem leaks?");
                     },
 
                     else => {},
@@ -107,10 +150,16 @@ pub const Tui = struct {
             .key => |key| {
                 switch (key) {
                     .Down => {
-                        return ctx.scrollDown();
+                        return try ctx.scrollDown();
                     },
                     .Up => {
-                        return ctx.scrollUp();
+                        return try ctx.scrollUp();
+                    },
+                    .Left => {
+                        return try ctx.prevChapter();
+                    },
+                    .Right => {
+                        return try ctx.nextChapter();
                     },
                     else => {},
                 }
@@ -128,21 +177,10 @@ pub const Tui = struct {
         const allocator = gpa.allocator();
         defer _ = gpa.deinit();
 
-        // const freewebnovel = fwn.Freewebnovel.init(allocator);
+        const freewebnovel = fwn.Freewebnovel.init(allocator);
         // const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
         // defer chapter.deinit(allocator);
-
-        var chapter: fwn.Chapter = .{
-            .title = "",
-            .number = 0,
-            .lines = std.ArrayList([]const u8).init(allocator),
-        };
-
-        try chapter.lines.append("Line 1");
-        try chapter.lines.append("Line 2");
-        try chapter.lines.append("Line 3");
-        try chapter.lines.append("Line 4");
-        try chapter.lines.append("Line 5");
+        var chapter = try freewebnovel.sample_chapter(2);
 
         // Create an arena allocator for the spans
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -169,10 +207,12 @@ pub const Tui = struct {
 
         var ctx: TuiEventContext = .{
             .tui = &tui,
-            .lines = &chapter.lines,
-            .offset = 0,
-            .allocator = &arena_allocator,
+            .arena = &arena_allocator,
+            .gpa = &allocator,
+            .provider = &freewebnovel,
             .span = &span,
+            .chapter = &chapter,
+            .offset = 0,
         };
 
         try tui.addEventHandler(.{

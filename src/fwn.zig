@@ -319,6 +319,31 @@ pub const Freewebnovel = struct {
 
         return error.FailedToFetchChapter;
     }
+
+    pub fn sample_novel(self: *const Freewebnovel) Novel {
+        _ = self;
+        return .{
+            .id = "",
+            .title = "",
+            .url = "",
+            .chapters = 0,
+            .chapter = 0,
+        };
+    }
+
+    pub fn sample_chapter(self: *const Freewebnovel, number: usize) !Chapter {
+        var chapter: Chapter = .{
+            .title = "",
+            .number = number,
+            .lines = std.ArrayList([]const u8).init(self.allocator),
+        };
+
+        for (0..number) |ii| {
+            try chapter.lines.append(try std.fmt.allocPrint(self.allocator, "Line {d}", .{ii}));
+        }
+
+        return chapter;
+    }
 };
 
 // test "can make post request to search url" {
