@@ -8,36 +8,9 @@ const rem = @import("rem");
 const css_parser = @import("css_parser.zig");
 const dom_utils = @import("dom_utils.zig");
 
+const Chapter = @import("chapter.zig");
+const Novel = @import("novel.zig");
 const Allocator = std.mem.Allocator;
-
-pub const Novel = struct {
-    id: []const u8,
-    title: []const u8,
-    url: []const u8,
-    chapters: usize,
-    chapter: usize,
-
-    pub fn deinit(self: *const Novel, allocator: Allocator) void {
-        allocator.free(self.id);
-        allocator.free(self.title);
-        allocator.free(self.url);
-    }
-};
-
-pub const Chapter = struct {
-    title: []const u8,
-    number: usize,
-    lines: std.ArrayList([]const u8),
-    // TODO: status, if required (for latest chapter reached etc)
-
-    pub fn deinit(self: *const Chapter, allocator: Allocator) void {
-        allocator.free(self.title);
-        for (self.lines.items) |line| {
-            allocator.free(line);
-        }
-        self.lines.deinit();
-    }
-};
 
 // TODO: Revisit this later, need to figure out how to transfer ownership of `parser`
 // so that all the pointers don't get free'd before we can do anything with them
@@ -238,17 +211,11 @@ pub const Freewebnovel = struct {
         const chapter_number_str = try std.fmt.allocPrint(self.allocator, "{d}", .{chapter_number});
         defer self.allocator.free(chapter_number_str);
 
-        std.debug.print("Allocated chapter number as str {s}\n", .{chapter_number_str});
-
         const url = try std.mem.concat(self.allocator, u8, &.{ "https://", Host, SlugPrefix, if (std.mem.startsWith(u8, slug, "/")) "" else "/", slug, if (std.mem.endsWith(u8, slug, "/")) "" else "/", ChapterPrefix, chapter_number_str });
         defer self.allocator.free(url);
 
-        std.debug.print("Making get request to {s}\n", .{url});
-
         const s = try self.make_get_req(url);
         defer self.allocator.free(s);
-
-        std.debug.print("Made get request to {s} and got {s}\n", .{ url, s });
 
         // Create the DOM in which the parsed Document will be created.
         var dom = rem.Dom{ .allocator = self.allocator };
@@ -273,8 +240,6 @@ pub const Freewebnovel = struct {
         const document = parser.getDocument();
 
         if (document.element) |document_element| {
-            std.debug.print("Got a root document element\n", .{});
-
             var chapter: Chapter = .{ .title = "", .number = chapter_number, .lines = std.ArrayList([]const u8).init(self.allocator) };
 
             // First scan for the container divs that contain the info we want
@@ -284,35 +249,25 @@ pub const Freewebnovel = struct {
 
             const row = try css.parse_single("span.chapter");
 
-            std.debug.print("Parsed span.chapter with {any}\n", .{row});
-
             if (row) |row_title| {
                 if (row_title.text) |text| {
-                    std.debug.print("Found title: {s}\n", .{text});
                     chapter.title = try self.allocator.dupe(u8, text);
                 }
             }
 
             if (std.mem.eql(u8, chapter.title, "")) {
-                std.debug.print("Didn't find the title, so we failed.\n", .{});
                 // Latest chapter reached as we didn't find a title
                 return error.LatestChapterReached;
             }
 
-            std.debug.print("Parsing div.#article>p\n", .{});
-
             const content = try css.parse_many("div#article>p");
             defer self.allocator.free(content);
-
-            std.debug.print("Parsed div.txt >#article>p\n", .{});
 
             for (content) |line| {
                 if (line.text) |text| {
                     try chapter.lines.append(try self.allocator.dupe(u8, text));
                 }
             }
-
-            std.debug.print("Processed fetching lines content\n", .{});
 
             return chapter;
         }
@@ -322,27 +277,11 @@ pub const Freewebnovel = struct {
 
     pub fn sample_novel(self: *const Freewebnovel) Novel {
         _ = self;
-        return .{
-            .id = "",
-            .title = "",
-            .url = "",
-            .chapters = 0,
-            .chapter = 0,
-        };
+        return Novel.sample();
     }
 
     pub fn sample_chapter(self: *const Freewebnovel, number: usize) !Chapter {
-        var chapter: Chapter = .{
-            .title = "",
-            .number = number,
-            .lines = std.ArrayList([]const u8).init(self.allocator),
-        };
-
-        for (0..number) |ii| {
-            try chapter.lines.append(try std.fmt.allocPrint(self.allocator, "Line {d}", .{ii}));
-        }
-
-        return chapter;
+        return try Chapter.sample(self.allocator, number);
     }
 };
 

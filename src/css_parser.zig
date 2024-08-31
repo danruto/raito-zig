@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const rem = @import("rem");
+const logz = @import("logz");
 
 const Allocator = std.mem.Allocator;
 
@@ -28,8 +29,6 @@ pub const CSSParser = struct {
         // We hold a reference to the dom elements as we may run multiple selectors on the same document
         var node_stack = std.ArrayListUnmanaged(NodeData){};
         try node_stack.append(allocator, .{ .node = .{ .element = document_element }, .depth = 1 });
-
-        std.debug.print("From init first element: {any}", .{node_stack.items[0].node.element});
 
         return .{
             .allocator = allocator,
@@ -228,7 +227,7 @@ pub const CSSParser = struct {
                                 match = false;
                             }
 
-                            std.log.debug("\tMatch for id?: {}\n", .{match});
+                            logz.debug().ctx("parse_single.process_for_selector_node.id").boolean("match", match).log();
                         }
 
                         if (css_selector_node.class_name) |cn| {
@@ -238,7 +237,7 @@ pub const CSSParser = struct {
                                 match = false;
                             }
 
-                            std.log.debug("\tMatch for class name?: {}\n", .{match});
+                            logz.debug().ctx("parse_single.process_for_selector_node.class_name").boolean("match", match).log();
                         }
 
                         if (css_selector_node.attribute_name) |an| {
@@ -252,11 +251,11 @@ pub const CSSParser = struct {
                                 match = false;
                             }
 
-                            std.log.debug("\tMatch for attributes?: {}\n", .{match});
+                            logz.debug().ctx("parse_single.process_for_selector_node.attr").boolean("match", match).log();
                         }
 
                         if (match) {
-                            std.log.debug("\tMatch found, saving element\n", .{});
+                            logz.debug().string("\tMatch found, saving element\n", .{}).log();
                             // It matched everything we were looking for
                             final_node = .{
                                 .element = element,
@@ -316,7 +315,7 @@ pub const CSSParser = struct {
                                 if (final_node.?.text == null) {
                                     final_node.?.text = std.zig.fmtEscapes(cd.data.items).data;
                                 } else {
-                                    std.log.warn("\tSomehow we have more .text types", .{});
+                                    logz.warn().string("msg", "Somehow we have more .text types").log();
                                 }
                             },
 
@@ -529,25 +528,23 @@ pub const CSSSelector = struct {
 
     pub fn print(self: *const CSSSelector) !void {
         for (self.nodes.items) |node| {
-            std.debug.print("\nPrinting node.\n", .{});
+            logz.debug().ctx("css_parser.CSSSelector.print").string("msg", "Printing node.").log();
 
             if (node.element_type) |et| {
-                std.debug.print("\tElement: {any}\n", .{et});
+                logz.debug().ctx("css_parser.CSSSelector.print").fmt("Element", "{any}", et).log();
             }
             if (node.id) |id| {
-                std.debug.print("\tID: '{s}'\n", .{id});
+                logz.debug().ctx("css_parser.CSSSelector.print").string("id", id).log();
             }
             if (node.class_name) |cn| {
-                std.debug.print("\tClassName: '{s}'\n", .{cn});
+                logz.debug().ctx("css_parser.CSSSelector.print").string("class_name", cn).log();
             }
             if (node.attribute_name) |an| {
-                std.debug.print("\tAttribute name: '{s}'\n", .{an});
+                logz.debug().ctx("css_parser.CSSSelector.print").string("attribute_name", an).log();
             }
             if (node.attribute_value) |av| {
-                std.debug.print("\tAttribute value: '{s}'\n", .{av});
+                logz.debug().ctx("css_parser.CSSSelector.print").string("attribute_value", av).log();
             }
-
-            std.debug.print("Printed node.\n", .{});
         }
     }
 };

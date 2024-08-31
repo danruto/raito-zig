@@ -1,7 +1,9 @@
 const std = @import("std");
 const tuile = @import("tuile");
+const zqlite = @import("zqlite");
 
-const fwn = @import("fwn.zig");
+const Freewebnovel = @import("fwn.zig").Freewebnovel;
+const Chapter = @import("chapter.zig");
 
 const Allocator = std.mem.Allocator;
 const Theme = tuile.Theme;
@@ -33,11 +35,11 @@ const TuiEventContext = struct {
     tui: *tuile.Tuile,
     arena: *const Allocator,
     gpa: *const Allocator,
-    provider: *const fwn.Freewebnovel,
+    provider: *const Freewebnovel,
 
     span: *tuile.Span,
 
-    chapter: *fwn.Chapter,
+    chapter: *Chapter,
     offset: usize,
 
     pub fn scrollDown(self: *TuiEventContext) !tuile.events.EventResult {
@@ -169,7 +171,7 @@ pub const Tui = struct {
         return .ignored;
     }
 
-    pub fn run() !void {
+    pub fn run(pool: *zqlite.Pool) !void {
         var tui = try tuile.Tuile.init(.{});
         defer tui.deinit();
 
@@ -177,10 +179,13 @@ pub const Tui = struct {
         const allocator = gpa.allocator();
         defer _ = gpa.deinit();
 
-        const freewebnovel = fwn.Freewebnovel.init(allocator);
+        const freewebnovel = Freewebnovel.init(allocator);
         // const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
         // defer chapter.deinit(allocator);
         var chapter = try freewebnovel.sample_chapter(2);
+
+        // Save our sample chapter to make sure it works
+        try chapter.upsert(pool, allocator, "novel-id");
 
         // Create an arena allocator for the spans
         var arena = std.heap.ArenaAllocator.init(allocator);
