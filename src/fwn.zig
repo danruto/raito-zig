@@ -4,6 +4,7 @@
 const std = @import("std");
 const zul = @import("zul");
 const rem = @import("rem");
+const logz = @import("logz");
 
 const css_parser = @import("css_parser.zig");
 const dom_utils = @import("dom_utils.zig");
@@ -79,6 +80,8 @@ pub const Freewebnovel = struct {
     }
 
     fn make_post_req(self: *const Freewebnovel, url: []const u8, form: ?*const std.StringHashMap([]const u8)) anyerror![]const u8 {
+        logz.debug().ctx("fwn.make_post_req").string("url", url).boolean("form given", form != null).log();
+
         var client = zul.http.Client.init(self.allocator);
         defer client.deinit();
 
@@ -97,6 +100,7 @@ pub const Freewebnovel = struct {
 
         var res = try req.getResponse(.{});
         if (res.status != 200) {
+            logz.err().ctx("fwn.make_post_req").string("msg", "status was not 200").log();
             return error.InvalidStatusCode;
         }
 
@@ -138,6 +142,13 @@ pub const Freewebnovel = struct {
         // `errors` returns the list of parse errors that were encountered while parsing.
         // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
         const errors = parser.errors();
+        if (errors.len > 0) {
+            logz.err()
+                .ctx("fwn.search")
+                .string("msg", "errors parsing dom")
+                .fmt("errors", "{any}", .{errors})
+                .log();
+        }
         std.debug.assert(errors.len == 0);
 
         // We can now print the resulting Document to the console.
@@ -168,23 +179,28 @@ pub const Freewebnovel = struct {
                     if (try local_css.parse_single("h3.tit>a")) |href_node| {
                         if (href_node.element) |element| {
                             if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "title" })) |attr_title| {
+                                logz.debug().ctx("fwn.search").string("msg", "found a title").string("attr_title", attr_title).log();
                                 novel.title = try self.allocator.dupe(u8, attr_title);
                             }
 
                             if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "href" })) |attr_url| {
+                                logz.debug().ctx("fwn.search").string("msg", "found a url").string("attr_url", attr_url).log();
                                 // The string size will only reduce, so we just allocate the original size and do our replacements
                                 const output = try self.allocator.alloc(u8, attr_url.len);
 
                                 _ = std.mem.replace(u8, attr_url, ".html", "", output);
-                                _ = std.mem.replace(u8, attr_url, SlugPrefix, "", output);
+                                // _ = std.mem.replace(u8, attr_url, SlugPrefix, "", output);
 
                                 novel.url = output;
+
+                                logz.debug().ctx("fwn.search").string("msg", "save and replaced to").string("output", output).log();
                             }
                         }
                     }
 
                     if (try local_css.parse_single("span.s1")) |chapters_node| {
                         if (chapters_node.text) |text| {
+                            logz.debug().ctx("fwn.search").string("msg", "found chapters text").string("text", text).log();
                             const size = std.mem.replacementSize(u8, text, "Chapters", "");
                             const output = try self.allocator.alloc(u8, size);
                             defer self.allocator.free(output);
@@ -194,16 +210,21 @@ pub const Freewebnovel = struct {
                             novel.chapters = try std.fmt.parseUnsigned(usize, std.mem.trim(u8, output, " "), 10);
                             // Start at the first chapter
                             novel.chapter = 1;
+
+                            logz.debug().ctx("fwn.search").string("msg", "parsed and saved chapters text").string("text", text).log();
                         }
                     }
 
                     if (!std.mem.eql(u8, novel.title, "")) {
+                        logz.debug().ctx("fwn.search").string("msg", "appending novel to ret").log();
                         try novels.append(self.allocator, novel);
+                        logz.debug().ctx("fwn.search").string("msg", "appended novel to ret").log();
                     }
                 }
             }
         }
 
+        logz.debug().ctx("fwn.search").string("msg", "returning owned slice").log();
         return try novels.toOwnedSlice(self.allocator);
     }
 

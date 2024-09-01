@@ -172,7 +172,7 @@ pub const CSSParser = struct {
         // Parse the selector into something we can use
         var css_selector = try CSSSelector.init(arena_allocator, selector);
         defer css_selector.nodes.deinit(arena_allocator);
-        // try css_selector.print();
+        try css_selector.print();
 
         // Which element in the selector we are up to
         var css_selector_node_index: usize = 0;
@@ -255,7 +255,12 @@ pub const CSSParser = struct {
                         }
 
                         if (match) {
-                            logz.debug().string("\tMatch found, saving element\n", .{}).log();
+                            logz.debug()
+                                .ctx("parse_single.match")
+                                .string("msg", "Match found, saving element")
+                                .string("element type", element.element_type.toLocalName())
+                                .int("css_selector_node_index", css_selector_node_index)
+                                .log();
                             // It matched everything we were looking for
                             final_node = .{
                                 .element = element,
@@ -285,6 +290,7 @@ pub const CSSParser = struct {
                     }
 
                     if (css_selector_node_index == css_selector.nodes.items.len) {
+                        logz.debug().string("msg", "appending cdata for final node").log();
                         var num_children = element.children.items.len;
                         while (num_children > 0) : (num_children -= 1) {
                             switch (element.children.items[num_children - 1]) {
@@ -304,6 +310,7 @@ pub const CSSParser = struct {
 
         // If this is the final item in the stack and it is a cdata, save it
         if (final_node != null and node_stack.items.len > 0) {
+            logz.debug().string("msg", "processing cdata for final node").log();
             while (node_stack.items.len > 0) {
                 const cdata_item = node_stack.pop();
 
@@ -328,6 +335,8 @@ pub const CSSParser = struct {
                 }
             }
         }
+
+        logz.debug().string("msg", "returning final_node").log();
 
         return final_node;
     }
@@ -531,7 +540,7 @@ pub const CSSSelector = struct {
             logz.debug().ctx("css_parser.CSSSelector.print").string("msg", "Printing node.").log();
 
             if (node.element_type) |et| {
-                logz.debug().ctx("css_parser.CSSSelector.print").fmt("Element", "{any}", et).log();
+                logz.debug().ctx("css_parser.CSSSelector.print").fmt("element type", "{any}", .{et}).log();
             }
             if (node.id) |id| {
                 logz.debug().ctx("css_parser.CSSSelector.print").string("id", id).log();
@@ -545,6 +554,8 @@ pub const CSSSelector = struct {
             if (node.attribute_value) |av| {
                 logz.debug().ctx("css_parser.CSSSelector.print").string("attribute_value", av).log();
             }
+
+            logz.debug().ctx("css_parser.CSSSelector.print").string("msg", "Printed node.").log();
         }
     }
 };

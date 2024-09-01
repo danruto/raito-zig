@@ -40,8 +40,8 @@
             .hash = "1220a267bbb2165749fd6574cd2729aa70dd3cbbf74c8825b97334b22d9b2385ec3f",
         },
         .tuile = .{
-            .url = "https://github.com/akarpovskii/tuile/archive/refs/tags/v0.1.3.tar.gz",
-            .hash = "122097cec88e4270a2f14d1bcb85120cbe9a754c42faf5ad5a909c4f1d972e1c1f6c",
+            .url = "git+https://github.com/akarpovskii/tuile?ref=list_widget#251403466d0c3c709a62e0a3f9ce108a059ebbbe",
+            .hash = "1220463fe79f00560c051ebb74ea312f9f4cc68af0d9fa23c9960da60edc29e7348f",
         },
     },
     .paths = .{
