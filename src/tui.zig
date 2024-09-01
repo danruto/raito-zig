@@ -4,22 +4,13 @@ const zqlite = @import("zqlite");
 
 const Freewebnovel = @import("fwn.zig").Freewebnovel;
 const Chapter = @import("chapter.zig");
+const Novel = @import("novel.zig");
 
 const Allocator = std.mem.Allocator;
 const Theme = tuile.Theme;
 const color = tuile.color;
 
-fn generateMultilineSpan(allocator: Allocator, lines: *const std.ArrayList([]const u8)) !tuile.Span {
-    var span = tuile.Span.init(allocator);
-
-    for (lines.items) |line| {
-        try span.append(.{ .style = .{ .fg = color("#FFFFFF") }, .text = try std.mem.concat(allocator, u8, &.{ line, "\n\n" }) });
-    }
-
-    return span;
-}
-
-fn generateMultilineSpan2(allocator: Allocator, lines: [][]const u8) !tuile.Span {
+fn generateMultilineSpan(allocator: Allocator, lines: [][]const u8) !tuile.Span {
     var span = tuile.Span.init(allocator);
 
     for (lines) |line| {
@@ -31,71 +22,214 @@ fn generateMultilineSpan2(allocator: Allocator, lines: [][]const u8) !tuile.Span
     return span;
 }
 
-const TuiEventContext = struct {
+fn generateMultilineSpanUnmanaged(allocator: Allocator, lines: [][]const u8) !tuile.SpanUnmanaged {
+    var span = tuile.SpanUnmanaged{};
+
+    for (lines) |line| {
+        try span.append(allocator, .{ .style = .{ .fg = color("#FFFFFF") }, .text = try std.mem.concat(allocator, u8, &.{ line, "\n" }) });
+        // Add another newline to give some spacing to the text for readability
+        try span.append(allocator, .{ .style = .{ .fg = color("#FFFFFF") }, .text = "\n" });
+    }
+
+    return span;
+}
+
+const TuiPage = enum {
+    home,
+    search,
+    reader,
+};
+
+// TODO:
+// - Create context per page as it needs it
+// i.e. Home has a struct to impl cb's for radio
+// Search has a struct ...
+// Reader has a struct
+// Then they all have their own event handlers
+
+const TuiHomePage = struct {
     tui: *tuile.Tuile,
     arena: *const Allocator,
     gpa: *const Allocator,
     provider: *const Freewebnovel,
 
-    span: *tuile.Span,
+    text: ?[]const u8 = null,
 
-    chapter: *Chapter,
-    offset: usize,
+    fn onInputChanged(opt_self: ?*TuiHomePage, value: []const u8) void {
+        const self = opt_self.?;
+        self.text = value;
+        // Autosearch? If it's filtering on local state its fine
+    }
+};
 
-    pub fn scrollDown(self: *TuiEventContext) !tuile.events.EventResult {
-        if (self.tui.findByIdTyped(tuile.Label, "view")) |view| {
-            if (self.offset + 1 < self.chapter.lines.items.len) {
-                self.span.*.deinit();
-                var span = try generateMultilineSpan2(self.arena.*, self.chapter.lines.items[self.offset + 1 ..]);
-                self.span.* = span;
-                self.offset += 1;
-                try view.setSpan(span.view());
+const TuiSearchPage = struct {
+    tui: *tuile.Tuile,
+    arena: *const Allocator,
+    gpa: *const Allocator,
+    provider: *const Freewebnovel,
+
+    text: ?[]const u8 = null,
+
+    fn onInputChanged(opt_self: ?*TuiSearchPage, value: []const u8) void {
+        const self = opt_self.?;
+        self.text = value;
+    }
+
+    fn onSearch(opt_self: ?*TuiSearchPage) void {
+        const self = opt_self.?;
+        if (self.text) |text| {
+            // Query fwn and save the data to context or append to a list
+            _ = text;
+        }
+    }
+};
+
+const TuiReaderPage = struct {
+    const Context = struct {
+        tui: *tuile.Tuile,
+        gpa: *const Allocator,
+        arena: *const Allocator,
+        provider: *const Freewebnovel,
+
+        chapter: Chapter,
+        span: tuile.Span,
+        offset: isize = 0,
+
+        fn scroll(self: *Context, size: isize) !void {
+            // If a span exists, then we have everything init already to setup
+            // const view = self.tui.findByIdTyped(tuile.Label, "view") orelse unreachable;
+            const chapter = self.chapter;
+            const new_offset: isize = self.offset + size;
+            if (new_offset >= 0 and new_offset < chapter.lines.items.len) {
+                self.span.deinit();
+                std.debug.print("De-inited span\n", .{});
+                const span = try generateMultilineSpan(self.arena.*, chapter.lines.items[@intCast(new_offset)..]);
+                _ = span;
+                std.debug.print("inited new span\n", .{});
+                // self.offset = new_offset;
+                // try view.setSpan(self.span.view());
             }
         }
-        return .consumed;
-    }
 
-    pub fn scrollUp(self: *TuiEventContext) !tuile.events.EventResult {
-        if (self.tui.findByIdTyped(tuile.Label, "view")) |view| {
-            if (self.offset > 0) {
-                self.span.*.deinit();
-                var span = try generateMultilineSpan2(self.arena.*, self.chapter.lines.items[self.offset - 1 ..]);
-                self.span.* = span;
-                self.offset -= 1;
-                try view.setSpan(span.view());
-            }
+        pub fn scrollDown(self: *Context) !tuile.events.EventResult {
+            try self.scroll(1);
+
+            return .consumed;
         }
-        return .consumed;
-    }
 
-    pub fn prevChapter(self: *TuiEventContext) !tuile.events.EventResult {
-        if (self.tui.findByIdTyped(tuile.Label, "view")) |view| {
-            const number = self.chapter.number - 1;
+        pub fn scrollUp(self: *Context) !tuile.events.EventResult {
+            try self.scroll(-1);
+
+            return .consumed;
+        }
+
+        fn changeChapter(self: *Context, number: usize) !void {
+            // TODO: max check?
+            if (number < 0) return;
+
+            const view = self.tui.findByIdTyped(tuile.Label, "view") orelse unreachable;
             self.chapter.deinit(self.gpa.*);
             const chapter = try self.provider.sample_chapter(number);
-            self.chapter.* = chapter;
+            self.chapter = chapter;
             self.offset = 0;
-            self.span.*.deinit();
-            var span = try generateMultilineSpan2(self.arena.*, self.chapter.lines.items[self.offset..]);
-            self.span.* = span;
-            try view.setSpan(span.view());
+            self.span.deinit();
+            self.span = try generateMultilineSpan(self.arena.*, chapter.lines.items[0..]);
+            try view.setSpan(self.span.view());
         }
-        return .consumed;
+
+        pub fn prevChapter(self: *Context) !tuile.events.EventResult {
+            try self.changeChapter(self.chapter.number - 1);
+
+            return .consumed;
+        }
+
+        pub fn nextChapter(self: *Context) !tuile.events.EventResult {
+            try self.changeChapter(self.chapter.number + 1);
+
+            return .consumed;
+        }
+    };
+
+    ctx: Context,
+
+    pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.EventResult {
+        var ctx: *Context = @ptrCast(@alignCast(ptr));
+
+        return switch (event) {
+            .char => |char| switch (char) {
+                'j' => try ctx.scrollDown(),
+                'k' => try ctx.scrollUp(),
+                'h' => try ctx.prevChapter(),
+                'l' => try ctx.nextChapter(),
+
+                else => .ignored,
+            },
+            .key => |key| switch (key) {
+                .Down => try ctx.scrollDown(),
+                .Up => try ctx.scrollUp(),
+                .Left => try ctx.prevChapter(),
+                .Right => try ctx.nextChapter(),
+
+                else => .ignored,
+            },
+
+            else => .ignored,
+        };
     }
 
-    pub fn nextChapter(self: *TuiEventContext) !tuile.events.EventResult {
-        if (self.tui.findByIdTyped(tuile.Label, "view")) |view| {
-            const number = self.chapter.number + 1;
-            self.chapter.deinit(self.gpa.*);
-            const chapter = try self.provider.sample_chapter(number);
-            self.chapter.* = chapter;
-            self.offset = 0;
-            self.span.*.deinit();
-            var span = try generateMultilineSpan2(self.arena.*, self.chapter.lines.items[self.offset..]);
-            self.span.* = span;
-            try view.setSpan(span.view());
-        }
-        return .consumed;
+    pub fn addEventHandler(self: *TuiReaderPage) !void {
+        try self.ctx.tui.addEventHandler(.{
+            .handler = onKeyHandler,
+            .payload = &self.ctx,
+        });
+    }
+
+    pub fn new(cfg: struct {
+        tui: *tuile.Tuile,
+        gpa: *const Allocator,
+        arena: Allocator,
+    }) !TuiReaderPage {
+        const provider = Freewebnovel.init(cfg.gpa.*);
+        // var span = tuile.Span.init(cfg.arena);
+
+        var chapter = try provider.sample_chapter(30);
+        defer chapter.deinit(cfg.gpa.*);
+
+        const ctx = .{
+            .tui = cfg.tui,
+            .arena = &cfg.arena,
+            .gpa = cfg.gpa,
+            .provider = &provider,
+            .chapter = try provider.sample_chapter(30),
+            .span = try generateMultilineSpan(cfg.arena, chapter.lines.items[0..]),
+        };
+
+        return .{
+            .ctx = ctx,
+        };
+    }
+
+    pub fn deinit(self: *TuiReaderPage) void {
+        self.ctx.chapter.deinit(self.ctx.gpa.*);
+        self.ctx.span.deinit();
+    }
+
+    pub fn render(self: *TuiReaderPage) !*tuile.StackLayout {
+        return tuile.vertical(.{
+            .layout = .{ .flex = 1 },
+        }, .{
+            tuile.block(
+                .{
+                    .id = "block",
+                    .border = tuile.Border.all(),
+                    .border_type = .rounded,
+                    .layout = .{ .flex = 1 },
+                },
+                tuile.label(.{ .id = "view", .span = self.ctx.span.view() }),
+                // tuile.label(.{ .id = "view", .text = "sample" }),
+            ),
+            tuile.label(.{ .id = "view", .text = "[h] Prev | [l] Next" }),
+        });
     }
 };
 
@@ -117,6 +251,7 @@ pub const Tui = struct {
         var tui: *tuile.Tuile = @ptrCast(@alignCast(ptr));
         switch (event) {
             .char => |char| if (char == 'q') {
+                // TODO: deinit pages
                 tui.stop();
                 return .consumed;
             },
@@ -125,53 +260,8 @@ pub const Tui = struct {
         return .ignored;
     }
 
-    pub fn scrollDown(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.EventResult {
-        var ctx: *TuiEventContext = @ptrCast(@alignCast(ptr));
-        switch (event) {
-            .char => |char| {
-                switch (char) {
-                    'j' => {
-                        return try ctx.scrollDown();
-                    },
-                    'k' => {
-                        return try ctx.scrollUp();
-                    },
-                    'h' => {
-                        return try ctx.prevChapter();
-                    },
-                    'l' => {
-                        return try ctx.nextChapter();
-                    },
-                    'p' => {
-                        @panic("See mem leaks?");
-                    },
-
-                    else => {},
-                }
-            },
-            .key => |key| {
-                switch (key) {
-                    .Down => {
-                        return try ctx.scrollDown();
-                    },
-                    .Up => {
-                        return try ctx.scrollUp();
-                    },
-                    .Left => {
-                        return try ctx.prevChapter();
-                    },
-                    .Right => {
-                        return try ctx.nextChapter();
-                    },
-                    else => {},
-                }
-            },
-            else => {},
-        }
-        return .ignored;
-    }
-
     pub fn run(pool: *zqlite.Pool) !void {
+        _ = pool;
         var tui = try tuile.Tuile.init(.{});
         defer tui.deinit();
 
@@ -179,55 +269,35 @@ pub const Tui = struct {
         const allocator = gpa.allocator();
         defer _ = gpa.deinit();
 
-        const freewebnovel = Freewebnovel.init(allocator);
-        // const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
-        // defer chapter.deinit(allocator);
-        var chapter = try freewebnovel.sample_chapter(2);
-
-        // Save our sample chapter to make sure it works
-        try chapter.upsert(pool, allocator, "novel-id");
-
-        // Create an arena allocator for the spans
         var arena = std.heap.ArenaAllocator.init(allocator);
         const arena_allocator = arena.allocator();
         defer arena.deinit();
 
-        // var span = try generateMultilineSpan(arena_allocator, &chapter.lines);
-        var span = try generateMultilineSpan2(arena_allocator, chapter.lines.items[0..]);
+        // const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
+        // defer chapter.deinit(allocator);
+
+        var reader = try TuiReaderPage.new(.{
+            .tui = &tui,
+            .arena = arena_allocator,
+            .gpa = &allocator,
+        });
+        defer reader.deinit();
 
         try tui.add(
             tuile.themed(
                 .{ .id = "themed", .theme = ayu() },
-                tuile.block(
-                    .{
-                        .id = "block",
-                        .border = tuile.Border.all(),
-                        .border_type = .rounded,
-                        .layout = .{ .flex = 1 },
-                    },
-                    tuile.label(.{ .id = "view", .span = span.view() }),
-                ),
+                try reader.render(),
             ),
         );
 
-        var ctx: TuiEventContext = .{
-            .tui = &tui,
-            .arena = &arena_allocator,
-            .gpa = &allocator,
-            .provider = &freewebnovel,
-            .span = &span,
-            .chapter = &chapter,
-            .offset = 0,
-        };
-
+        // Global application events
         try tui.addEventHandler(.{
             .handler = stopOnQ,
             .payload = &tui,
         });
-        try tui.addEventHandler(.{
-            .handler = scrollDown,
-            .payload = &ctx,
-        });
+
+        // Per page events
+        try reader.addEventHandler();
 
         try tui.run();
     }

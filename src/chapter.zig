@@ -5,11 +5,13 @@ const Allocator = std.mem.Allocator;
 
 const Self = @This();
 
+novel_id: []const u8,
 title: []const u8,
 number: usize,
 lines: std.ArrayList([]const u8),
 
 pub fn deinit(self: *const Self, allocator: Allocator) void {
+    allocator.free(self.novel_id);
     allocator.free(self.title);
     for (self.lines.items) |line| {
         allocator.free(line);
@@ -19,7 +21,8 @@ pub fn deinit(self: *const Self, allocator: Allocator) void {
 
 pub fn sample(allocator: Allocator, number: usize) !Self {
     var chapter = .{
-        .title = "sample chapter",
+        .novel_id = try std.fmt.allocPrint(allocator, "sample-novel-id", .{}),
+        .title = try std.fmt.allocPrint(allocator, "sample title", .{}),
         .number = number,
         .lines = std.ArrayList([]const u8).init(allocator),
     };
@@ -31,7 +34,7 @@ pub fn sample(allocator: Allocator, number: usize) !Self {
     return chapter;
 }
 
-pub fn get(pool: *zqlite.Pool, allocator: Allocator, novel_id: []const u8, number: usize) ?Self {
+pub fn get(pool: *zqlite.Pool, allocator: Allocator, novel_id: []const u8, number: usize) !?Self {
     const conn = pool.acquire();
     defer pool.release(conn);
 
@@ -42,6 +45,7 @@ pub fn get(pool: *zqlite.Pool, allocator: Allocator, novel_id: []const u8, numbe
         defer row.deinit();
 
         var chapter: Self = .{
+            .novel_id = try allocator.dupe(u8, novel_id),
             .title = try allocator.dupe(u8, row.text(0)),
             .number = number,
             .lines = std.ArrayList([]const u8).init(allocator),
