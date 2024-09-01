@@ -2,5 +2,4 @@
 .git
 zig-out
 .zig-cache
-ratio.db
 run.log
