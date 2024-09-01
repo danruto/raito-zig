@@ -87,9 +87,9 @@ const TuiSearchPage = struct {
 const TuiReaderPage = struct {
     const Context = struct {
         tui: *tuile.Tuile,
-        gpa: *const Allocator,
-        arena: *const Allocator,
-        provider: *const Freewebnovel,
+        gpa: Allocator,
+        arena: Allocator,
+        provider: Freewebnovel,
 
         chapter: Chapter,
         span: tuile.Span,
@@ -97,17 +97,15 @@ const TuiReaderPage = struct {
 
         fn scroll(self: *Context, size: isize) !void {
             // If a span exists, then we have everything init already to setup
-            // const view = self.tui.findByIdTyped(tuile.Label, "view") orelse unreachable;
+            const view = self.tui.findByIdTyped(tuile.Label, "view") orelse unreachable;
             const chapter = self.chapter;
             const new_offset: isize = self.offset + size;
             if (new_offset >= 0 and new_offset < chapter.lines.items.len) {
                 self.span.deinit();
-                std.debug.print("De-inited span\n", .{});
-                const span = try generateMultilineSpan(self.arena.*, chapter.lines.items[@intCast(new_offset)..]);
-                _ = span;
-                std.debug.print("inited new span\n", .{});
-                // self.offset = new_offset;
-                // try view.setSpan(self.span.view());
+                const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(new_offset)..]);
+                self.span = span;
+                self.offset = new_offset;
+                try view.setSpan(self.span.view());
             }
         }
 
@@ -128,12 +126,12 @@ const TuiReaderPage = struct {
             if (number < 0) return;
 
             const view = self.tui.findByIdTyped(tuile.Label, "view") orelse unreachable;
-            self.chapter.deinit(self.gpa.*);
-            const chapter = try self.provider.sample_chapter(number);
-            self.chapter = chapter;
+            self.chapter.deinit(self.gpa);
+            self.chapter = try self.provider.sample_chapter(number);
             self.offset = 0;
             self.span.deinit();
-            self.span = try generateMultilineSpan(self.arena.*, chapter.lines.items[0..]);
+            const span = try generateMultilineSpan(self.arena, self.chapter.lines.items[0..]);
+            self.span = span;
             try view.setSpan(self.span.view());
         }
 
@@ -186,20 +184,20 @@ const TuiReaderPage = struct {
 
     pub fn new(cfg: struct {
         tui: *tuile.Tuile,
-        gpa: *const Allocator,
+        gpa: Allocator,
         arena: Allocator,
     }) !TuiReaderPage {
-        const provider = Freewebnovel.init(cfg.gpa.*);
+        const provider = Freewebnovel.init(cfg.gpa);
         // var span = tuile.Span.init(cfg.arena);
 
         var chapter = try provider.sample_chapter(30);
-        defer chapter.deinit(cfg.gpa.*);
+        defer chapter.deinit(cfg.gpa);
 
         const ctx = .{
             .tui = cfg.tui,
-            .arena = &cfg.arena,
+            .arena = cfg.arena,
             .gpa = cfg.gpa,
-            .provider = &provider,
+            .provider = provider,
             .chapter = try provider.sample_chapter(30),
             .span = try generateMultilineSpan(cfg.arena, chapter.lines.items[0..]),
         };
@@ -210,7 +208,7 @@ const TuiReaderPage = struct {
     }
 
     pub fn deinit(self: *TuiReaderPage) void {
-        self.ctx.chapter.deinit(self.ctx.gpa.*);
+        self.ctx.chapter.deinit(self.ctx.gpa);
         self.ctx.span.deinit();
     }
 
@@ -279,7 +277,7 @@ pub const Tui = struct {
         var reader = try TuiReaderPage.new(.{
             .tui = &tui,
             .arena = arena_allocator,
-            .gpa = &allocator,
+            .gpa = allocator,
         });
         defer reader.deinit();
 
