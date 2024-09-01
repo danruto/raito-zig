@@ -107,8 +107,9 @@ const TuiSearchPage = struct {
                 for (novels) |novel| {
                     items.append(self.ctx.arena, .{
                         .label = tuile.label(.{ .text = self.ctx.arena.dupe(u8, novel.title) catch unreachable }) catch unreachable,
-                        .value = @ptrCast(@alignCast(@constCast(&novel))),
+                        // .value = @ptrCast(@alignCast(@constCast(&novel))),
                         // .value = @ptrCast(@constCast(&novel)),
+                        .value = &self,
                     }) catch unreachable;
                 }
                 logz.debug().ctx("tui.search.onSearch").string("msg", "Appended novels").log();
@@ -192,10 +193,11 @@ const TuiSearchPage = struct {
                             // check if we have a version locally, if we do go to current chapter instead
                             // const v: *[]const u8 = @ptrCast(@alignCast(value));
                             // const v: []const u8 = @as([*]u8, @ptrCast(value))[0..20];
-                            const novel: *Novel = @ptrCast(@alignCast(value));
+                            // const novel: *Novel = @ptrCast(@alignCast(value));
+                            const sp: *TuiSearchPage = @ptrCast(@alignCast(value));
 
-                            logz.debug().ctx("tui.search.onKeyHandler.enter").string("novel_url", novel.url).log();
-                            logz.debug().ctx("tui.search.onKeyHandler.enter").fmt("novel", "{any}", .{novel}).log();
+                            // logz.debug().ctx("tui.search.onKeyHandler.enter").string("novel_url", novel.url).log();
+                            logz.debug().ctx("tui.search.onKeyHandler.enter").fmt("novel", "{any}", .{sp}).log();
 
                             // Toggle page from search to novel
                             ctx.enabled = false;
