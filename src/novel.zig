@@ -57,12 +57,12 @@ pub fn get_all(pool: *zqlite.Pool, allocator: Allocator) ![]Self {
     var novels = std.ArrayList(Self).init(allocator);
 
     while (rows.next()) |row| {
-        const novel = .{
-            .id = row.int(0),
+        const novel: Self = .{
+            .id = try allocator.dupe(u8, row.text(0)),
             .title = try allocator.dupe(u8, row.text(2)),
             .url = try allocator.dupe(u8, row.text(1)),
-            .chapter = row.int(3),
-            .chapters = row.int(4),
+            .chapter = @intCast(row.int(3)),
+            .chapters = @intCast(row.int(4)),
         };
 
         try novels.append(novel);

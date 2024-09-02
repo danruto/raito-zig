@@ -4,3 +4,6 @@ zig-out
 .zig-cache
 run.log
 raito.db
+*Zone.Identifier
+*-shm
+*-wal
