@@ -8,21 +8,21 @@ const Self = @This();
 
 id: []const u8,
 title: []const u8,
-url: []const u8,
+slug: []const u8,
 chapters: usize,
 chapter: usize,
 
 pub fn deinit(self: *const Self, allocator: Allocator) void {
     allocator.free(self.id);
     allocator.free(self.title);
-    allocator.free(self.url);
+    allocator.free(self.slug);
 }
 
 pub fn sample() Self {
     return .{
         .id = "",
         .title = "",
-        .url = "",
+        .slug = "",
         .chapters = 0,
         .chapter = 0,
     };
@@ -38,9 +38,9 @@ pub fn get(pool: *zqlite.Pool, allocator: Allocator, id: []const u8) !?Self {
         return .{
             .id = id,
             .title = try allocator.dupe(u8, row.text(2)),
-            .url = try allocator.dupe(u8, row.text(1)),
-            .chapter = row.int(3),
-            .chapters = row.int(4),
+            .slug = try allocator.dupe(u8, row.text(1)),
+            .chapter = @intCast(row.int(3)),
+            .chapters = @intCast(row.int(4)),
         };
     }
 
@@ -60,7 +60,7 @@ pub fn get_all(pool: *zqlite.Pool, allocator: Allocator) ![]Self {
         const novel: Self = .{
             .id = try allocator.dupe(u8, row.text(0)),
             .title = try allocator.dupe(u8, row.text(2)),
-            .url = try allocator.dupe(u8, row.text(1)),
+            .slug = try allocator.dupe(u8, row.text(1)),
             .chapter = @intCast(row.int(3)),
             .chapters = @intCast(row.int(4)),
         };

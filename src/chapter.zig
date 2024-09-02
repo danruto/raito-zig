@@ -1,5 +1,6 @@
 const std = @import("std");
 const zqlite = @import("zqlite");
+const logz = @import("logz");
 
 const Allocator = std.mem.Allocator;
 

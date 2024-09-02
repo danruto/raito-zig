@@ -33,7 +33,11 @@ pub fn main() !void {
         try migrations.migrateData(conn, 0);
     }
 
-    try tui.Tui.run(&data_pool);
+    tui.Tui.run(&data_pool) catch |err| {
+        logz.fatal().ctx("app.tui.run").err(err).log();
+        std.debug.dumpCurrentStackTrace(null);
+        return err;
+    };
 }
 
 test "test all" {

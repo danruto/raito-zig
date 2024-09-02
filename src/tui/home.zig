@@ -3,7 +3,7 @@ const tuile = @import("tuile");
 const zqlite = @import("zqlite");
 const logz = @import("logz");
 
-const Freewebnovel = @import("../fwn.zig").Freewebnovel;
+const Freewebnovel = @import("../fwn.zig");
 const Chapter = @import("../chapter.zig");
 const Novel = @import("../novel.zig");
 
@@ -34,11 +34,6 @@ fn onInputChanged(opt_self: ?*TuiHomePage, value: []const u8) void {
 }
 
 fn onSearch(opt_self: ?*TuiHomePage) void {
-    const self = opt_self.?;
-    _ = self;
-}
-
-fn onSelect(opt_self: ?*TuiHomePage) void {
     const self = opt_self.?;
     _ = self;
 }
@@ -77,7 +72,7 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
             for (novels, 0..) |novel, idx| {
                 try novels_list.append(.{
                     .label = try tuile.label(.{ .text = try self.ctx.arena.dupe(u8, novel.title) }),
-                    .value = @ptrFromInt(idx),
+                    .value = @ptrFromInt(idx + 1),
                 });
             }
         }
@@ -97,10 +92,6 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
             .{
                 .id = "home-list",
                 .layout = .{ .flex = 16 },
-                .on_press = .{
-                    .cb = @ptrCast(&onSelect),
-                    .payload = self,
-                },
             },
             novels_list.items[0..],
         ),
@@ -129,10 +120,9 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
     });
 }
 
+// TODO: doesn't work
 pub fn focusList(self: *TuiHomePage) void {
     const container = self.ctx.tui.findByIdTyped(tuile.StackLayout, "home-page") orelse unreachable;
-    _ = container.handleEvent(.{ .focus_in = .front }) catch unreachable;
-    _ = container.handleEvent(.{ .focus_in = .front }) catch unreachable;
     _ = container.handleEvent(.{ .focus_in = .front }) catch unreachable;
 }
 
@@ -191,28 +181,24 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                 if (list.focus_handler.focused) {
                     const focused_item = list.items.items[list.selected_index];
                     if (focused_item.value) |value| {
-                        logz.debug().ctx("tui.home.onKeyHandler.enter").string("msg", "search-list focused item has value").fmt("value", "{any}", .{value}).log();
-                        // TODO:
-                        // Go to chapter 1 of this novel
-                        // check if we have a version locally, if we do go to current chapter instead
+                        logz.debug().ctx("tui.home.onKeyHandler.enter").string("msg", "home-list focused item has value").fmt("value", "{any}", .{value}).log();
                         // Go down an index as `if (focused_item.value)` evaluates a 0 int as false
-                        const idx = @intFromPtr(value) - 1;
+                        const idx = @intFromPtr(value);
                         const novels = ctx.novels orelse unreachable;
-                        const novel = novels[idx];
+                        const novel = novels[idx - 1];
+                        logz.debug().ctx("tui.home.onKeyHandler.enter").string("msg", "extracted novel").fmt("novel", "{any}", .{novel}).log();
 
                         // Toggle page from search to novel
                         ctx.enabled = false;
 
                         const reader_page = ctx.page.reader orelse unreachable;
-
-                        reader_page.fetch_chapter(novel.id, novel.chapter) catch unreachable;
-
+                        reader_page.ctx.enabled = true;
+                        reader_page.ctx.fetch_chapter(novel.id, novel.chapter) catch unreachable;
                         logz.debug().ctx("tui.home.onKeyHandler.enter").string("msg", "enabled reader page").log();
 
                         const home_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "home-page") orelse unreachable;
                         const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse unreachable;
                         _ = page_container.removeChild(home_page_widget.widget()) catch unreachable;
-
                         page_container.addChild(reader_page.render() catch unreachable) catch unreachable;
                     }
                 } else {

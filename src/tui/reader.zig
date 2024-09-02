@@ -3,7 +3,7 @@ const tuile = @import("tuile");
 const zqlite = @import("zqlite");
 const logz = @import("logz");
 
-const Freewebnovel = @import("../fwn.zig").Freewebnovel;
+const Freewebnovel = @import("../fwn.zig");
 const Chapter = @import("../chapter.zig");
 const Novel = @import("../novel.zig");
 
@@ -41,24 +41,56 @@ const Context = struct {
     tui: *tuile.Tuile,
     gpa: Allocator,
     arena: Allocator,
-    provider: Freewebnovel,
+    pool: *zqlite.Pool,
 
     enabled: bool,
     chapter: ?Chapter = null,
     span: ?tuile.Span = null,
     offset: isize = 0,
 
+    fn reset_span(self: *Context) !void {
+        const view = self.tui.findByIdTyped(tuile.Label, "reader-view") orelse unreachable;
+        const chapter = self.chapter orelse unreachable;
+        self.span.?.deinit();
+        const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(self.offset)..]);
+        self.span = span;
+        try view.setSpan(self.span.?.view());
+    }
+
+    fn reset_span_safe(self: *Context) !void {
+        const chapter = self.chapter orelse unreachable;
+        var had_span = false;
+        if (self.span) |_| {
+            logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "span existed, deiniting").log();
+            self.span.?.deinit();
+            had_span = true;
+        }
+        const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(self.offset)..]);
+        self.span = span;
+
+        if (self.tui.findByIdTyped(tuile.Label, "reader-view")) |view| {
+            logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "reader-view exists").log();
+            if (had_span) {
+                logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "span existed, setting new one").log();
+                try view.setSpan(self.span.?.view());
+            }
+        }
+    }
+
+    fn reset_title_safe(self: *Context) !void {
+        const chapter = self.chapter orelse unreachable;
+        if (self.tui.findByIdTyped(tuile.Label, "reader-title")) |label| {
+            try label.setText(chapter.title);
+        }
+    }
+
     fn scroll(self: *Context, size: isize) !void {
         // If a span exists, then we have everything init already to setup
-        const view = self.tui.findByIdTyped(tuile.Label, "reader-view") orelse unreachable;
         const chapter = self.chapter orelse unreachable;
         const new_offset: isize = self.offset + size;
         if (new_offset >= 0 and new_offset < chapter.lines.items.len) {
-            self.span.?.deinit();
-            const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(new_offset)..]);
-            self.span = span;
             self.offset = new_offset;
-            try view.setSpan(self.span.?.view());
+            try self.reset_span();
         }
     }
 
@@ -78,14 +110,8 @@ const Context = struct {
         // TODO: max check?
         if (number < 0) return;
 
-        const view = self.tui.findByIdTyped(tuile.Label, "reader-view") orelse unreachable;
-        self.chapter.?.deinit(self.gpa);
-        self.chapter = try self.provider.sample_chapter(number);
-        self.offset = 0;
-        self.span.?.deinit();
-        const span = try generateMultilineSpan(self.arena, self.chapter.?.lines.items[0..]);
-        self.span = span;
-        try view.setSpan(self.span.?.view());
+        logz.debug().ctx("TuiReaderPage.Context.change_chapter").string("msg", "changing chapter to").int("number", number).log();
+        try self.fetch_chapter(self.chapter.?.novel_id, number);
     }
 
     pub fn prevChapter(self: *Context) !tuile.events.EventResult {
@@ -99,10 +125,36 @@ const Context = struct {
 
         return .consumed;
     }
+
+    pub fn fetch_chapter(self: *Context, novel_id: []const u8, number: usize) !void {
+        self.offset = 0;
+
+        if (try Chapter.get(self.pool, self.gpa, novel_id, number)) |chapter| {
+            if (self.chapter) |c| c.deinit(self.gpa);
+            // We found a cached chapter so just save it into our state
+            self.chapter = chapter;
+
+            logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached chapter").string("novel", novel_id).int("number", number).log();
+        } else {
+            const provider = Freewebnovel.init(self.gpa);
+            if (try Novel.get(self.pool, self.gpa, novel_id)) |novel| {
+                if (self.chapter) |c| c.deinit(self.gpa);
+                self.chapter = try provider.fetch(novel.slug, number);
+                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached novel to fetch new chapter").string("novel", novel_id).int("number", number).log();
+            } else {
+                const novel = try provider.get_novel(novel_id);
+                if (self.chapter) |c| c.deinit(self.gpa);
+                self.chapter = try provider.fetch(novel.slug, number);
+                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "fetched new novel and chapter").string("novel", novel_id).int("number", number).log();
+            }
+        }
+
+        try self.reset_span_safe();
+        try self.reset_title_safe();
+    }
 };
 
 ctx: Context,
-pool: *zqlite.Pool,
 
 pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.EventResult {
     var ctx: *Context = @ptrCast(@alignCast(ptr));
@@ -142,31 +194,8 @@ pub fn addEventHandler(self: *TuiReaderPage) !void {
     });
 }
 
-pub fn create(cfg: struct {
-    tui: *tuile.Tuile,
-    gpa: Allocator,
-    arena: Allocator,
-    enabled: bool,
-    pool: *zqlite.Pool,
-}) !TuiReaderPage {
-    const provider = Freewebnovel.init(cfg.gpa);
-    // var span = tuile.Span.init(cfg.arena);
-
-    var chapter = try provider.sample_chapter(30);
-    defer chapter.deinit(cfg.gpa);
-
-    const ctx = .{
-        .tui = cfg.tui,
-        .arena = cfg.arena,
-        .gpa = cfg.gpa,
-        .enabled = cfg.enabled,
-        .provider = provider,
-    };
-
-    return .{
-        .ctx = ctx,
-        .pool = cfg.pool,
-    };
+pub fn create(ctx_: Context) !TuiReaderPage {
+    return .{ .ctx = ctx_ };
 }
 
 pub fn destroy(self: *TuiReaderPage) void {
@@ -185,27 +214,8 @@ pub fn render(self: *TuiReaderPage) !*tuile.StackLayout {
             .layout = .{ .flex = 1 },
         }, tuile.vertical(.{ .id = "reader-container", .layout = .{ .alignment = .{ .h = .center, .v = .top } } }, .{
             tuile.label(.{ .id = "reader-title", .text = if (self.ctx.chapter) |chapter| chapter.title else null }),
-            tuile.label(.{ .id = "reader-view", .span = if (self.ctx.span) |span| span.view() else null, .layout = .{ .min_width = self.ctx.tui.window_size.x } }),
+            tuile.label(.{ .id = "reader-view", .span = if (self.ctx.span) |span| span.view() else null, .text = if (self.ctx.span) |_| null else "Chapter Unavailable", .layout = .{ .min_width = self.ctx.tui.window_size.x } }),
         })),
         tuile.label(.{ .id = "reader-status-bar", .text = "[h] Prev | [l] Next | [j] Down | [k] Up | [q] Quit" }),
     });
-}
-
-pub fn fetch_chapter(self: *TuiReaderPage, novel_id: []const u8, number: usize) !void {
-    if (self.ctx.chapter) |chapter| chapter.deinit(self.ctx.gpa);
-
-    if (try Chapter.get(self.pool, self.ctx.gpa, novel_id, number)) |chapter| {
-        // We found a cached chapter so just save it into our state
-        self.ctx.chapter = chapter;
-    } else {
-        // TODO: implement it to use real fetch
-        // We don't have the chapter locally, so try to fetch it
-        // for now to speed it up return sample
-        self.ctx.chapter = try self.ctx.provider.sample_chapter(number);
-    }
-
-    if (self.ctx.span) |_| self.ctx.span.?.deinit();
-    const span = try generateMultilineSpan(self.ctx.arena, self.ctx.chapter.?.lines.items[0..]);
-    self.ctx.span = span;
-    self.ctx.enabled = true;
 }

@@ -3,7 +3,7 @@ const tuile = @import("tuile");
 const zqlite = @import("zqlite");
 const logz = @import("logz");
 
-const Freewebnovel = @import("../fwn.zig").Freewebnovel;
+const Freewebnovel = @import("../fwn.zig");
 const Chapter = @import("../chapter.zig");
 const Novel = @import("../novel.zig");
 
@@ -25,28 +25,28 @@ const Context = struct {
 ctx: Context,
 text: ?[]const u8 = null,
 
+pub fn destroy(self: *TuiSearchPage) void {
+    if (self.ctx.novels) |data| {
+        for (data) |novel| {
+            novel.deinit(self.ctx.gpa);
+        }
+        self.ctx.gpa.free(data);
+    }
+}
+
 pub fn onInputChanged(opt_self: ?*TuiSearchPage, value: []const u8) void {
     const self = opt_self.?;
     self.text = value;
-}
-
-pub fn onSelect(opt_self: ?*TuiSearchPage) void {
-    const self = opt_self.?;
-    _ = self;
 }
 
 pub fn onSearch(opt_self: ?*TuiSearchPage) void {
     const self = opt_self.?;
     if (self.text) |text| {
         if (text.len > 0) {
-            logz.debug().ctx("tui.search.onSearch").string("msg", "Finding list").string("text", text).log();
             var list = self.ctx.tui.findByIdTyped(tuile.List, "search-list") orelse unreachable;
-            logz.debug().ctx("tui.search.onSearch").string("msg", "Found list").string("text", text).log();
 
             const provider = Freewebnovel.init(self.ctx.gpa);
-            logz.debug().ctx("tui.search.onSearch").string("msg", "Searching for").string("text", text).log();
             self.ctx.novels = provider.search(text) catch unreachable;
-            logz.debug().ctx("tui.search.onSearch").string("msg", "Searched for").string("text", text).log();
             errdefer {
                 for (self.ctx.novels) |novel| {
                     novel.deinit(self.ctx.gpa);
@@ -56,9 +56,7 @@ pub fn onSearch(opt_self: ?*TuiSearchPage) void {
 
             // Need to reset the list since we don't have access to the internal.allocator
             // to append more items to the list
-            logz.debug().ctx("tui.search.onSearch").string("msg", "Destroying list").log();
             list.destroy();
-            logz.debug().ctx("tui.search.onSearch").string("msg", "Destroyed list").log();
 
             var items = std.ArrayListUnmanaged(tuile.List.Item){};
             defer items.deinit(self.ctx.arena);
@@ -81,10 +79,6 @@ pub fn onSearch(opt_self: ?*TuiSearchPage) void {
             list = tuile.list(.{
                 .id = "search-list",
                 .layout = .{ .flex = 16 },
-                .on_press = .{
-                    .cb = @ptrCast(&onSelect),
-                    .payload = self,
-                },
             }, items.items[0..]) catch unreachable;
             logz.debug().ctx("tui.search.onSearch").string("msg", "Recreated list").log();
         }
@@ -100,19 +94,23 @@ pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.E
         .char => |char| switch (char) {
             'j' => {
                 const list = ctx.tui.findByIdTyped(tuile.List, "search-list") orelse unreachable;
-                if (list.selected_index + 1 < list.items.items.len) {
-                    list.selected_index += 1;
-                }
+                if (list.focus_handler.focused) {
+                    if (list.selected_index + 1 < list.items.items.len) {
+                        list.selected_index += 1;
+                    }
 
-                return .consumed;
+                    return .consumed;
+                }
             },
             'k' => {
                 const list = ctx.tui.findByIdTyped(tuile.List, "search-list") orelse unreachable;
-                if (list.selected_index > 0) {
-                    list.selected_index -= 1;
-                }
+                if (list.focus_handler.focused) {
+                    if (list.selected_index > 0) {
+                        list.selected_index -= 1;
+                    }
 
-                return .consumed;
+                    return .consumed;
+                }
             },
 
             else => {},
@@ -131,9 +129,7 @@ pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.E
                     const focused_item = list.items.items[list.selected_index];
                     if (focused_item.value) |value| {
                         logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "search-list focused item has value").fmt("value", "{any}", .{value}).log();
-                        // TODO:
-                        // Go to chapter 1 of this novel
-                        // check if we have a version locally, if we do go to current chapter instead
+
                         // Go down an index as `if (focused_item.value)` evaluates a 0 int as false
                         const idx = @intFromPtr(value) - 1;
                         const novels = ctx.novels orelse unreachable;
@@ -143,15 +139,13 @@ pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.E
                         ctx.enabled = false;
 
                         const reader_page = ctx.page.reader orelse unreachable;
-
-                        reader_page.fetch_chapter(novel.id, novel.chapter) catch unreachable;
+                        reader_page.ctx.fetch_chapter(novel.id, novel.chapter) catch unreachable;
 
                         logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "enabled reader page").log();
 
                         const search_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "search-page") orelse unreachable;
                         const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse unreachable;
                         _ = page_container.removeChild(search_page_widget.widget()) catch unreachable;
-
                         page_container.addChild(reader_page.render() catch unreachable) catch unreachable;
                     }
                 } else {
@@ -203,10 +197,6 @@ pub fn render(self: *TuiSearchPage) !*tuile.StackLayout {
             .{
                 .id = "search-list",
                 .layout = .{ .flex = 16 },
-                .on_press = .{
-                    .cb = @ptrCast(&onSelect),
-                    .payload = self,
-                },
             },
             &.{
                 .{
@@ -216,13 +206,4 @@ pub fn render(self: *TuiSearchPage) !*tuile.StackLayout {
             },
         ),
     });
-}
-
-pub fn destroy(self: *TuiSearchPage) void {
-    if (self.ctx.novels) |data| {
-        for (data) |novel| {
-            novel.deinit(self.ctx.gpa);
-        }
-        self.ctx.gpa.free(data);
-    }
 }
