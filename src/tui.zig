@@ -35,12 +35,11 @@ fn generateMultilineSpanUnmanaged(allocator: Allocator, lines: [][]const u8) !tu
     return span;
 }
 
-// TODO:
-// - Create context per page as it needs it
-// i.e. Home has a struct to impl cb's for radio
-// Search has a struct ...
-// Reader has a struct
-// Then they all have their own event handlers
+const PageContext = struct {
+    home: ?*TuiHomePage,
+    search: ?*TuiSearchPage,
+    reader: ?*TuiReaderPage,
+};
 
 const TuiHomePage = struct {
     tui: *tuile.Tuile,
@@ -64,7 +63,9 @@ const TuiSearchPage = struct {
         gpa: Allocator,
         arena: Allocator,
 
-        reader: *TuiReaderPage,
+        data: ?[]Novel = null,
+
+        page: *PageContext,
     };
 
     ctx: Context,
@@ -73,6 +74,11 @@ const TuiSearchPage = struct {
     pub fn onInputChanged(opt_self: ?*TuiSearchPage, value: []const u8) void {
         const self = opt_self.?;
         self.text = value;
+    }
+
+    pub fn onSelect(opt_self: ?*TuiSearchPage) void {
+        const self = opt_self.?;
+        _ = self;
     }
 
     pub fn onSearch(opt_self: ?*TuiSearchPage) void {
@@ -85,7 +91,7 @@ const TuiSearchPage = struct {
 
                 const provider = Freewebnovel.init(self.ctx.gpa);
                 logz.debug().ctx("tui.search.onSearch").string("msg", "Searching for").string("text", text).log();
-                const novels = provider.search(text) catch unreachable;
+                self.ctx.data = provider.search(text) catch unreachable;
                 logz.debug().ctx("tui.search.onSearch").string("msg", "Searched for").string("text", text).log();
                 // errdefer {
                 //     for (novels) |novel| {
@@ -104,12 +110,16 @@ const TuiSearchPage = struct {
                 defer items.deinit(self.ctx.arena);
 
                 logz.debug().ctx("tui.search.onSearch").string("msg", "Appending novels").log();
-                for (novels) |novel| {
+                for (self.ctx.data.?, 0..) |novel, idx| {
                     items.append(self.ctx.arena, .{
                         .label = tuile.label(.{ .text = self.ctx.arena.dupe(u8, novel.title) catch unreachable }) catch unreachable,
                         // .value = @ptrCast(@alignCast(@constCast(&novel))),
                         // .value = @ptrCast(@constCast(&novel)),
-                        .value = &self,
+                        // .value = @ptrCast(@constCast(&self)),
+                        // .value = self,
+                        // .value = @ptrCast(@constCast(novel.url.ptr)),
+                        // Go up an index as `if (focused_item.value)` evaluates a 0 int as false
+                        .value = @ptrFromInt(idx + 1),
                     }) catch unreachable;
                 }
                 logz.debug().ctx("tui.search.onSearch").string("msg", "Appended novels").log();
@@ -129,14 +139,6 @@ const TuiSearchPage = struct {
                 }, items.items[0..]) catch unreachable;
                 logz.debug().ctx("tui.search.onSearch").string("msg", "Recreated list").log();
             }
-        }
-    }
-
-    pub fn onSelect(opt_self: ?*TuiSearchPage) void {
-        const self = opt_self.?;
-        if (self.text) |text| {
-            // Query fwn and save the data to context or append to a list
-            _ = text;
         }
     }
 
@@ -191,29 +193,43 @@ const TuiSearchPage = struct {
                             // TODO:
                             // Go to chapter 1 of this novel
                             // check if we have a version locally, if we do go to current chapter instead
-                            // const v: *[]const u8 = @ptrCast(@alignCast(value));
-                            // const v: []const u8 = @as([*]u8, @ptrCast(value))[0..20];
-                            // const novel: *Novel = @ptrCast(@alignCast(value));
-                            const sp: *TuiSearchPage = @ptrCast(@alignCast(value));
+                            // const v: []const u8 = @ptrCast(@alignCast(value));
+                            // const v: []const u8 = @as([*]u8, @ptrCast(value))[0..100];
+                            // const novel: ?*Novel = @ptrCast(@alignCast(value));
+                            // const sp: *TuiSearchPage = @ptrCast(@alignCast(value));
+                            // Go down an index as `if (focused_item.value)` evaluates a 0 int as false
+                            const idx = @intFromPtr(value) - 1;
+                            const data = ctx.data orelse unreachable;
+                            const novel = data[idx];
 
-                            // logz.debug().ctx("tui.search.onKeyHandler.enter").string("novel_url", novel.url).log();
-                            logz.debug().ctx("tui.search.onKeyHandler.enter").fmt("novel", "{any}", .{sp}).log();
+                            logz.debug().ctx("tui.search.onKeyHandler.enter").string("novel_url", novel.url).log();
+                            // logz.debug().ctx("tui.search.onKeyHandler.enter").fmt("novel", "novel: {s}", .{v}).log();
+                            // logz.debug().ctx("tui.search.onKeyHandler.enter").fmt("novel", "novel2: {any}", .{novel.?.*.url}).log();
 
                             // Toggle page from search to novel
                             ctx.enabled = false;
 
                             logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "disabled search page").log();
-                            ctx.reader.ctx.chapter = try ctx.reader.ctx.provider.sample_chapter(10);
+
+                            const reader_page = ctx.page.reader orelse unreachable;
+
+                            reader_page.ctx.chapter = try reader_page.ctx.provider.sample_chapter(10);
                             logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "downloaded new chapter and set to reader ctx").log();
-                            ctx.reader.ctx.span.deinit();
+                            reader_page.ctx.span.deinit();
                             logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "deinit reader span").log();
-                            const span = try generateMultilineSpan(ctx.arena, ctx.reader.ctx.chapter.lines.items[0..]);
+                            const span = try generateMultilineSpan(ctx.arena, reader_page.ctx.chapter.lines.items[0..]);
                             logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "created new span for reader").log();
-                            ctx.reader.ctx.span = span;
+                            reader_page.ctx.span = span;
                             logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "saved span to reader ctx").log();
                             // TODO: setSpan but if it wasn't enabled it wouldn't exist yet
-                            ctx.reader.ctx.enabled = true;
+                            reader_page.ctx.enabled = true;
                             logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "enabled reader page").log();
+
+                            const search_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "search-page") orelse unreachable;
+                            const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse unreachable;
+                            _ = page_container.removeChild(search_page_widget.widget()) catch unreachable;
+
+                            page_container.addChild(reader_page.render() catch unreachable) catch unreachable;
                         }
                     } else {
                         logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "search-list was not focused").log();
@@ -238,9 +254,7 @@ const TuiSearchPage = struct {
     }
 
     pub fn render(self: *TuiSearchPage) !*tuile.StackLayout {
-        if (!self.ctx.enabled) return tuile.stack_layout(.{}, &.{});
-
-        return try tuile.vertical(.{ .layout = .{ .flex = 1 } }, .{
+        return try tuile.vertical(.{ .id = "search-page", .layout = .{ .flex = 1 } }, .{
             tuile.horizontal(
                 .{},
                 .{
@@ -279,6 +293,15 @@ const TuiSearchPage = struct {
                 },
             ),
         });
+    }
+
+    pub fn destroy(self: *TuiSearchPage) void {
+        if (self.ctx.data) |data| {
+            for (data) |novel| {
+                novel.deinit(self.ctx.gpa);
+            }
+            self.ctx.gpa.free(data);
+        }
     }
 };
 
@@ -387,7 +410,7 @@ const TuiReaderPage = struct {
         });
     }
 
-    pub fn new(cfg: struct {
+    pub fn create(cfg: struct {
         tui: *tuile.Tuile,
         gpa: Allocator,
         arena: Allocator,
@@ -413,14 +436,12 @@ const TuiReaderPage = struct {
         };
     }
 
-    pub fn deinit(self: *TuiReaderPage) void {
+    pub fn destroy(self: *TuiReaderPage) void {
         self.ctx.chapter.deinit(self.ctx.gpa);
         self.ctx.span.deinit();
     }
 
     pub fn render(self: *TuiReaderPage) !*tuile.StackLayout {
-        if (!self.ctx.enabled) return tuile.stack_layout(.{}, &.{});
-
         return tuile.vertical(.{
             .layout = .{ .flex = 1 },
         }, .{
@@ -482,12 +503,19 @@ pub const Tui = struct {
         // const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
         // defer chapter.deinit(allocator);
 
-        var reader = try TuiReaderPage.new(.{
+        var page: PageContext = .{
+            .home = null,
+            .search = null,
+            .reader = null,
+        };
+
+        var reader = try TuiReaderPage.create(.{
             .tui = &tui,
             .gpa = allocator,
             .arena = arena_allocator,
         });
-        defer reader.deinit();
+        defer reader.destroy();
+        page.reader = &reader;
 
         var search = TuiSearchPage{
             .ctx = .{
@@ -495,9 +523,11 @@ pub const Tui = struct {
                 .tui = &tui,
                 .gpa = allocator,
                 .arena = arena_allocator,
-                .reader = &reader,
+                .page = &page,
             },
         };
+        defer search.destroy();
+        page.search = &search;
 
         reader.ctx.enabled = false;
         search.ctx.enabled = true;
@@ -505,8 +535,7 @@ pub const Tui = struct {
         try tui.add(
             tuile.themed(
                 .{ .id = "themed", .theme = ayu() },
-                tuile.vertical(.{ .layout = .{ .flex = 1 } }, .{
-                    try reader.render(),
+                tuile.vertical(.{ .id = "page-container", .layout = .{ .flex = 1 } }, .{
                     try search.render(),
                 }),
             ),

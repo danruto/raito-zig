@@ -290,7 +290,10 @@ pub const CSSParser = struct {
                     }
 
                     if (css_selector_node_index == css_selector.nodes.items.len) {
-                        logz.debug().string("msg", "appending cdata for final node").log();
+                        logz.debug()
+                            .ctx("parse_single")
+                            .string("msg", "appending cdata for final node")
+                            .log();
                         var num_children = element.children.items.len;
                         while (num_children > 0) : (num_children -= 1) {
                             switch (element.children.items[num_children - 1]) {
@@ -310,7 +313,10 @@ pub const CSSParser = struct {
 
         // If this is the final item in the stack and it is a cdata, save it
         if (final_node != null and node_stack.items.len > 0) {
-            logz.debug().string("msg", "processing cdata for final node").log();
+            logz.debug()
+                .ctx("parse_single")
+                .string("msg", "processing cdata for final node")
+                .log();
             while (node_stack.items.len > 0) {
                 const cdata_item = node_stack.pop();
 
@@ -322,7 +328,7 @@ pub const CSSParser = struct {
                                 if (final_node.?.text == null) {
                                     final_node.?.text = std.zig.fmtEscapes(cd.data.items).data;
                                 } else {
-                                    logz.warn().string("msg", "Somehow we have more .text types").log();
+                                    logz.warn().ctx("parse_single").string("msg", "Somehow we have more .text types").log();
                                 }
                             },
 
@@ -336,7 +342,7 @@ pub const CSSParser = struct {
             }
         }
 
-        logz.debug().string("msg", "returning final_node").log();
+        logz.debug().ctx("parse_single").string("msg", "returning final_node").log();
 
         return final_node;
     }
