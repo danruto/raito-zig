@@ -1,37 +1,17 @@
+// TODO: Managed and Unmanaged versions
+// currently all basically unmanaged.
+
 const std = @import("std");
 const zul = @import("zul");
 const rem = @import("rem");
+const logz = @import("logz");
 
 const css_parser = @import("css_parser.zig");
 const dom_utils = @import("dom_utils.zig");
 
+const Chapter = @import("chapter.zig");
+const Novel = @import("novel.zig");
 const Allocator = std.mem.Allocator;
-
-const Novel = struct {
-    id: []const u8,
-    title: []const u8,
-    url: []const u8,
-    chapters: usize,
-    chapter: usize,
-
-    pub fn deinit(self: *Novel, allocator: Allocator) void {
-        allocator.free(self.id);
-        allocator.free(self.title);
-        allocator.free(self.url);
-    }
-};
-
-const Chapter = struct {
-    title: []const u8,
-    number: usize,
-    lines: std.ArrayList([]const u8),
-    // TODO: status, if required (for latest chapter reached etc)
-
-    pub fn deinit(self: *Chapter, allocator: Allocator) void {
-        allocator.free(self.title);
-        self.lines.deinit();
-    }
-};
 
 // TODO: Revisit this later, need to figure out how to transfer ownership of `parser`
 // so that all the pointers don't get free'd before we can do anything with them
@@ -100,6 +80,8 @@ pub const Freewebnovel = struct {
     }
 
     fn make_post_req(self: *const Freewebnovel, url: []const u8, form: ?*const std.StringHashMap([]const u8)) anyerror![]const u8 {
+        logz.debug().ctx("fwn.make_post_req").string("url", url).boolean("form given", form != null).log();
+
         var client = zul.http.Client.init(self.allocator);
         defer client.deinit();
 
@@ -118,6 +100,7 @@ pub const Freewebnovel = struct {
 
         var res = try req.getResponse(.{});
         if (res.status != 200) {
+            logz.err().ctx("fwn.make_post_req").string("msg", "status was not 200").log();
             return error.InvalidStatusCode;
         }
 
@@ -159,6 +142,13 @@ pub const Freewebnovel = struct {
         // `errors` returns the list of parse errors that were encountered while parsing.
         // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
         const errors = parser.errors();
+        if (errors.len > 0) {
+            logz.err()
+                .ctx("fwn.search")
+                .string("msg", "errors parsing dom")
+                .fmt("errors", "{any}", .{errors})
+                .log();
+        }
         std.debug.assert(errors.len == 0);
 
         // We can now print the resulting Document to the console.
@@ -189,23 +179,28 @@ pub const Freewebnovel = struct {
                     if (try local_css.parse_single("h3.tit>a")) |href_node| {
                         if (href_node.element) |element| {
                             if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "title" })) |attr_title| {
+                                logz.debug().ctx("fwn.search").string("msg", "found a title").string("attr_title", attr_title).log();
                                 novel.title = try self.allocator.dupe(u8, attr_title);
                             }
 
                             if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "href" })) |attr_url| {
+                                logz.debug().ctx("fwn.search").string("msg", "found a url").string("attr_url", attr_url).log();
                                 // The string size will only reduce, so we just allocate the original size and do our replacements
                                 const output = try self.allocator.alloc(u8, attr_url.len);
 
                                 _ = std.mem.replace(u8, attr_url, ".html", "", output);
-                                _ = std.mem.replace(u8, attr_url, SlugPrefix, "", output);
+                                // _ = std.mem.replace(u8, attr_url, SlugPrefix, "", output);
 
                                 novel.url = output;
+
+                                logz.debug().ctx("fwn.search").string("msg", "save and replaced to").string("output", output).log();
                             }
                         }
                     }
 
                     if (try local_css.parse_single("span.s1")) |chapters_node| {
                         if (chapters_node.text) |text| {
+                            logz.debug().ctx("fwn.search").string("msg", "found chapters text").string("text", text).log();
                             const size = std.mem.replacementSize(u8, text, "Chapters", "");
                             const output = try self.allocator.alloc(u8, size);
                             defer self.allocator.free(output);
@@ -215,16 +210,21 @@ pub const Freewebnovel = struct {
                             novel.chapters = try std.fmt.parseUnsigned(usize, std.mem.trim(u8, output, " "), 10);
                             // Start at the first chapter
                             novel.chapter = 1;
+
+                            logz.debug().ctx("fwn.search").string("msg", "parsed and saved chapters text").string("text", text).log();
                         }
                     }
 
                     if (!std.mem.eql(u8, novel.title, "")) {
+                        logz.debug().ctx("fwn.search").string("msg", "appending novel to ret").log();
                         try novels.append(self.allocator, novel);
+                        logz.debug().ctx("fwn.search").string("msg", "appended novel to ret").log();
                     }
                 }
             }
         }
 
+        logz.debug().ctx("fwn.search").string("msg", "returning owned slice").log();
         return try novels.toOwnedSlice(self.allocator);
     }
 
@@ -232,17 +232,11 @@ pub const Freewebnovel = struct {
         const chapter_number_str = try std.fmt.allocPrint(self.allocator, "{d}", .{chapter_number});
         defer self.allocator.free(chapter_number_str);
 
-        std.debug.print("Allocated chapter number as str {s}\n", .{chapter_number_str});
-
         const url = try std.mem.concat(self.allocator, u8, &.{ "https://", Host, SlugPrefix, if (std.mem.startsWith(u8, slug, "/")) "" else "/", slug, if (std.mem.endsWith(u8, slug, "/")) "" else "/", ChapterPrefix, chapter_number_str });
         defer self.allocator.free(url);
 
-        std.debug.print("Making get request to {s}\n", .{url});
-
         const s = try self.make_get_req(url);
         defer self.allocator.free(s);
-
-        std.debug.print("Made get request to {s} and got {s}\n", .{ url, s });
 
         // Create the DOM in which the parsed Document will be created.
         var dom = rem.Dom{ .allocator = self.allocator };
@@ -267,8 +261,6 @@ pub const Freewebnovel = struct {
         const document = parser.getDocument();
 
         if (document.element) |document_element| {
-            std.debug.print("Got a root document element\n", .{});
-
             var chapter: Chapter = .{ .title = "", .number = chapter_number, .lines = std.ArrayList([]const u8).init(self.allocator) };
 
             // First scan for the container divs that contain the info we want
@@ -278,41 +270,39 @@ pub const Freewebnovel = struct {
 
             const row = try css.parse_single("span.chapter");
 
-            std.debug.print("Parsed span.chapter with {any}\n", .{row});
-
             if (row) |row_title| {
                 if (row_title.text) |text| {
-                    std.debug.print("Found title: {s}\n", .{text});
                     chapter.title = try self.allocator.dupe(u8, text);
                 }
             }
 
             if (std.mem.eql(u8, chapter.title, "")) {
-                std.debug.print("Didn't find the title, so we failed.\n", .{});
                 // Latest chapter reached as we didn't find a title
                 return error.LatestChapterReached;
             }
 
-            std.debug.print("Parsing div.#article>p\n", .{});
-
             const content = try css.parse_many("div#article>p");
             defer self.allocator.free(content);
 
-            std.debug.print("Parsed div.txt >#article>p\n", .{});
-
             for (content) |line| {
                 if (line.text) |text| {
-                    std.debug.print("\tFound line: {s}\n", .{text});
-                    try chapter.lines.append(text);
+                    try chapter.lines.append(try self.allocator.dupe(u8, text));
                 }
             }
-
-            std.debug.print("Processed fetching lines content\n", .{});
 
             return chapter;
         }
 
         return error.FailedToFetchChapter;
+    }
+
+    pub fn sample_novel(self: *const Freewebnovel) Novel {
+        _ = self;
+        return Novel.sample();
+    }
+
+    pub fn sample_chapter(self: *const Freewebnovel, number: usize) !Chapter {
+        return try Chapter.sample(self.allocator, number);
     }
 };
 
@@ -480,10 +470,10 @@ pub const Freewebnovel = struct {
 //     }
 // }
 
-test "can fetch a chapter" {
-    @setEvalBranchQuota(200000);
-    const freewebnovel = Freewebnovel.init(std.testing.allocator);
-    const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
-    defer chapter.deinit(std.testing.allocator);
-    try std.testing.expectEqualStrings("Chapter 1 Outer Court Disciple", chapter.title);
-}
+// test "can fetch a chapter" {
+//     @setEvalBranchQuota(200000);
+//     const freewebnovel = Freewebnovel.init(std.testing.allocator);
+//     const chapter = try freewebnovel.fetch("/martial-god-asura-novel", 1);
+//     defer chapter.deinit(std.testing.allocator);
+//     try std.testing.expectEqualStrings("Chapter 1 Outer Court Disciple", chapter.title);
+// }

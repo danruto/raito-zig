@@ -1,27 +1,39 @@
 const std = @import("std");
-const rem = @import("rem");
+const logz = @import("logz");
+const zqlite = @import("zqlite");
 
-const css_parser = @import("css_parser.zig");
 const tui = @import("tui.zig");
-const fwm = @import("fwn.zig");
+
+const migrations = @import("migrations/migrations.zig");
 
 pub fn main() !void {
     @setEvalBranchQuota(200000);
 
-    // Do a quick download of the search page to make sure it works
-    // _ = fwm.Freewebnovel.init(std.heap.page_allocator);
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
+    try logz.setup(allocator, .{
+        .level = .Debug,
+        .output = .{ .file = "run.log" },
+    });
+    defer logz.deinit();
 
-    const freewebnovel = fwm.Freewebnovel.init(allocator);
-    const novels = try freewebnovel.search("martial");
-
-    for (novels) |novel| {
-        std.debug.print("\tNovel: t: {s}, u: {s}, c: {any}\n", .{ novel.title, novel.url, novel.chapters });
+    var data_pool = zqlite.Pool.init(allocator, .{
+        .size = 20,
+        .path = "raito.db",
+        .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode,
+    }) catch |err| {
+        logz.fatal().ctx("app.data_pool").err(err).string("path", "raito.db").log();
+        return err;
+    };
+    defer data_pool.deinit();
+    {
+        const conn = data_pool.acquire();
+        defer data_pool.release(conn);
+        try migrations.migrateData(conn, 0);
     }
 
-    // try tui.Tui.run();
+    try tui.Tui.run(&data_pool);
 }
 
 test "test all" {
