@@ -165,6 +165,10 @@ const TuiHomePage = struct {
 
         switch (event) {
             .char => |char| switch (char) {
+                's' => {
+                    // Go to search page
+                    return .consumed;
+                },
                 'j' => {
                     const list = ctx.tui.findByIdTyped(tuile.List, "home-list") orelse unreachable;
                     if (list.selected_index + 1 < list.items.items.len) {
@@ -205,20 +209,13 @@ const TuiHomePage = struct {
                             const idx = @intFromPtr(value) - 1;
                             const novels = ctx.novels orelse unreachable;
                             const novel = novels[idx];
-                            _ = novel;
 
                             // Toggle page from search to novel
                             ctx.enabled = false;
 
                             const reader_page = ctx.page.reader orelse unreachable;
 
-                            // TODO: impl a fn on reader_page that does chapter fetching and setting up
-                            reader_page.ctx.chapter = try reader_page.ctx.provider.sample_chapter(10);
-                            reader_page.ctx.span.deinit();
-                            const span = try generateMultilineSpan(ctx.arena, reader_page.ctx.chapter.lines.items[0..]);
-                            reader_page.ctx.span = span;
-                            // TODO: setSpan but if it wasn't enabled it wouldn't exist yet
-                            reader_page.ctx.enabled = true;
+                            reader_page.fetch_chapter(novel.id, novel.chapter) catch unreachable;
 
                             logz.debug().ctx("tui.home.onKeyHandler.enter").string("msg", "enabled reader page").log();
 
@@ -378,20 +375,13 @@ const TuiSearchPage = struct {
                             const idx = @intFromPtr(value) - 1;
                             const novels = ctx.novels orelse unreachable;
                             const novel = novels[idx];
-                            _ = novel;
 
                             // Toggle page from search to novel
                             ctx.enabled = false;
 
                             const reader_page = ctx.page.reader orelse unreachable;
 
-                            // TODO: impl a fn on reader_page that does chapter fetching and setting up
-                            reader_page.ctx.chapter = try reader_page.ctx.provider.sample_chapter(10);
-                            reader_page.ctx.span.deinit();
-                            const span = try generateMultilineSpan(ctx.arena, reader_page.ctx.chapter.lines.items[0..]);
-                            reader_page.ctx.span = span;
-                            // TODO: setSpan but if it wasn't enabled it wouldn't exist yet
-                            reader_page.ctx.enabled = true;
+                            reader_page.fetch_chapter(novel.id, novel.chapter) catch unreachable;
 
                             logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "enabled reader page").log();
 
@@ -483,21 +473,21 @@ const TuiReaderPage = struct {
         provider: Freewebnovel,
 
         enabled: bool,
-        chapter: Chapter,
-        span: tuile.Span,
+        chapter: ?Chapter = null,
+        span: ?tuile.Span = null,
         offset: isize = 0,
 
         fn scroll(self: *Context, size: isize) !void {
             // If a span exists, then we have everything init already to setup
             const view = self.tui.findByIdTyped(tuile.Label, "view") orelse unreachable;
-            const chapter = self.chapter;
+            const chapter = self.chapter orelse unreachable;
             const new_offset: isize = self.offset + size;
             if (new_offset >= 0 and new_offset < chapter.lines.items.len) {
-                self.span.deinit();
+                self.span.?.deinit();
                 const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(new_offset)..]);
                 self.span = span;
                 self.offset = new_offset;
-                try view.setSpan(self.span.view());
+                try view.setSpan(self.span.?.view());
             }
         }
 
@@ -518,29 +508,30 @@ const TuiReaderPage = struct {
             if (number < 0) return;
 
             const view = self.tui.findByIdTyped(tuile.Label, "view") orelse unreachable;
-            self.chapter.deinit(self.gpa);
+            self.chapter.?.deinit(self.gpa);
             self.chapter = try self.provider.sample_chapter(number);
             self.offset = 0;
-            self.span.deinit();
-            const span = try generateMultilineSpan(self.arena, self.chapter.lines.items[0..]);
+            self.span.?.deinit();
+            const span = try generateMultilineSpan(self.arena, self.chapter.?.lines.items[0..]);
             self.span = span;
-            try view.setSpan(self.span.view());
+            try view.setSpan(self.span.?.view());
         }
 
         pub fn prevChapter(self: *Context) !tuile.events.EventResult {
-            try self.changeChapter(self.chapter.number - 1);
+            try self.changeChapter(self.chapter.?.number - 1);
 
             return .consumed;
         }
 
         pub fn nextChapter(self: *Context) !tuile.events.EventResult {
-            try self.changeChapter(self.chapter.number + 1);
+            try self.changeChapter(self.chapter.?.number + 1);
 
             return .consumed;
         }
     };
 
     ctx: Context,
+    pool: *zqlite.Pool,
 
     pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.EventResult {
         var ctx: *Context = @ptrCast(@alignCast(ptr));
@@ -585,6 +576,7 @@ const TuiReaderPage = struct {
         gpa: Allocator,
         arena: Allocator,
         enabled: bool,
+        pool: *zqlite.Pool,
     }) !TuiReaderPage {
         const provider = Freewebnovel.init(cfg.gpa);
         // var span = tuile.Span.init(cfg.arena);
@@ -598,18 +590,17 @@ const TuiReaderPage = struct {
             .gpa = cfg.gpa,
             .enabled = cfg.enabled,
             .provider = provider,
-            .chapter = try provider.sample_chapter(30),
-            .span = try generateMultilineSpan(cfg.arena, chapter.lines.items[0..]),
         };
 
         return .{
             .ctx = ctx,
+            .pool = cfg.pool,
         };
     }
 
     pub fn destroy(self: *TuiReaderPage) void {
-        self.ctx.chapter.deinit(self.ctx.gpa);
-        self.ctx.span.deinit();
+        if (self.ctx.chapter) |chapter| chapter.deinit(self.ctx.gpa);
+        if (self.ctx.span) |_| self.ctx.span.?.deinit();
     }
 
     pub fn render(self: *TuiReaderPage) !*tuile.StackLayout {
@@ -623,11 +614,29 @@ const TuiReaderPage = struct {
                     .border_type = .rounded,
                     .layout = .{ .flex = 1 },
                 },
-                tuile.label(.{ .id = "view", .span = self.ctx.span.view() }),
+                tuile.label(.{ .id = "view", .span = if (self.ctx.span) |span| span.view() else null }),
                 // tuile.label(.{ .id = "view", .text = "sample" }),
             ),
             tuile.label(.{ .id = "view", .text = "[h] Prev | [l] Next | [j] Down | [k] Up | [q] Quit" }),
         });
+    }
+
+    pub fn fetch_chapter(self: *TuiReaderPage, novel_id: []const u8, number: usize) !void {
+        if (self.ctx.chapter) |chapter| chapter.deinit(self.ctx.gpa);
+
+        if (try Chapter.get(self.pool, self.ctx.gpa, novel_id, number)) |chapter| {
+            // We found a cached chapter so just save it into our state
+            self.ctx.chapter = chapter;
+        } else {
+            // We don't have the chapter locally, so try to fetch it
+            // for now to speed it up return sample
+            self.ctx.chapter = try self.ctx.provider.sample_chapter(number);
+        }
+
+        if (self.ctx.span) |_| self.ctx.span.?.deinit();
+        const span = try generateMultilineSpan(self.ctx.arena, self.ctx.chapter.?.lines.items[0..]);
+        self.ctx.span = span;
+        self.ctx.enabled = true;
     }
 };
 
@@ -706,6 +715,7 @@ pub const Tui = struct {
             .tui = &tui,
             .gpa = allocator,
             .arena = arena_allocator,
+            .pool = pool,
         });
         defer reader.destroy();
         page.reader = &reader;
