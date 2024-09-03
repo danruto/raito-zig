@@ -34,12 +34,12 @@ pub fn destroy(self: *TuiSearchPage) void {
     }
 }
 
-pub fn onInputChanged(opt_self: ?*TuiSearchPage, value: []const u8) void {
+fn onInputChanged(opt_self: ?*TuiSearchPage, value: []const u8) void {
     const self = opt_self.?;
     self.text = value;
 }
 
-pub fn onSearch(opt_self: ?*TuiSearchPage) void {
+fn onSearch(opt_self: ?*TuiSearchPage) void {
     const self = opt_self.?;
     if (self.text) |text| {
         if (text.len > 0) {
@@ -85,7 +85,7 @@ pub fn onSearch(opt_self: ?*TuiSearchPage) void {
     }
 }
 
-pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.EventResult {
+fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.EventResult {
     var ctx: *Context = @ptrCast(@alignCast(ptr));
 
     if (!ctx.enabled) return .ignored;
@@ -116,6 +116,24 @@ pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.E
             else => {},
         },
         .key => |key| switch (key) {
+            .Escape => {
+                const input = ctx.tui.findByIdTyped(tuile.Input, "search-input") orelse unreachable;
+
+                if (input.focus_handler.focused) {
+                    return .ignored;
+                }
+
+                ctx.enabled = false;
+
+                const home_page = ctx.page.home orelse unreachable;
+                home_page.ctx.enabled = true;
+                const serach_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "search-page") orelse unreachable;
+                const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse unreachable;
+                _ = try page_container.removeChild(serach_page_widget.widget());
+                try page_container.addChild(try home_page.render());
+
+                return .consumed;
+            },
             .Enter => {
                 const btn = ctx.tui.findByIdTyped(tuile.Button, "search-search-button") orelse unreachable;
                 if (btn.focus_handler.focused) {
@@ -128,28 +146,30 @@ pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.E
                 if (list.focus_handler.focused) {
                     const focused_item = list.items.items[list.selected_index];
                     if (focused_item.value) |value| {
-                        logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "search-list focused item has value").fmt("value", "{any}", .{value}).log();
+                        logz.debug().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "search-list focused item has value").fmt("value", "{any}", .{value}).log();
 
                         // Go down an index as `if (focused_item.value)` evaluates a 0 int as false
                         const idx = @intFromPtr(value) - 1;
                         const novels = ctx.novels orelse unreachable;
                         const novel = novels[idx];
+                        logz.debug().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "extracted novel").fmt("novel", "{any}", .{novel}).log();
 
                         // Toggle page from search to novel
                         ctx.enabled = false;
 
                         const reader_page = ctx.page.reader orelse unreachable;
-                        reader_page.ctx.fetch_chapter(novel.id, novel.chapter) catch unreachable;
+                        reader_page.ctx.enabled = true;
+                        try reader_page.ctx.fetch_chapter(novel.id, novel.chapter);
 
-                        logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "enabled reader page").log();
+                        logz.debug().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "enabled reader page").log();
 
                         const search_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "search-page") orelse unreachable;
                         const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse unreachable;
-                        _ = page_container.removeChild(search_page_widget.widget()) catch unreachable;
-                        page_container.addChild(reader_page.render() catch unreachable) catch unreachable;
+                        _ = try page_container.removeChild(search_page_widget.widget());
+                        try page_container.addChild(try reader_page.render());
                     }
                 } else {
-                    logz.debug().ctx("tui.search.onKeyHandler.enter").string("msg", "search-list was not focused").log();
+                    logz.debug().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "search-list was not focused").log();
                 }
                 return .consumed;
             },

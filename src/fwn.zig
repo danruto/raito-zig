@@ -169,7 +169,7 @@ pub fn search(self: *const Freewebnovel, term: []const u8) ![]Novel {
                 var novel: Novel = .{
                     .id = "",
                     .title = "",
-                    .url = "",
+                    .slug = "",
                     .chapters = 0,
                     .chapter = 0,
                 };
@@ -233,11 +233,11 @@ pub fn search(self: *const Freewebnovel, term: []const u8) ![]Novel {
     return try novels.toOwnedSlice(self.allocator);
 }
 
-pub fn fetch(self: *const Freewebnovel, slug: []const u8, chapter_number: usize) !Chapter {
+pub fn fetch(self: *const Freewebnovel, novel: Novel, chapter_number: usize) !Chapter {
     const chapter_number_str = try std.fmt.allocPrint(self.allocator, "{d}", .{chapter_number});
     defer self.allocator.free(chapter_number_str);
 
-    const url = try std.mem.concat(self.allocator, u8, &.{ "https://", Host, SlugPrefix, if (std.mem.startsWith(u8, slug, "/")) "" else "/", slug, if (std.mem.endsWith(u8, slug, "/")) "" else "/", ChapterPrefix, chapter_number_str });
+    const url = try std.mem.concat(self.allocator, u8, &.{ "https://", Host, SlugPrefix, if (std.mem.startsWith(u8, novel.slug, "/")) "" else "/", novel.slug, if (std.mem.endsWith(u8, novel.slug, "/")) "" else "/", ChapterPrefix, chapter_number_str });
     defer self.allocator.free(url);
 
     const s = try self.make_get_req(url);
@@ -266,7 +266,7 @@ pub fn fetch(self: *const Freewebnovel, slug: []const u8, chapter_number: usize)
     const document = parser.getDocument();
 
     if (document.element) |document_element| {
-        var chapter: Chapter = .{ .novel_id = try self.allocator.dupe(u8, slug), .title = "", .number = chapter_number, .lines = std.ArrayList([]const u8).init(self.allocator) };
+        var chapter: Chapter = .{ .novel_id = try self.allocator.dupe(u8, novel.id), .title = "", .number = chapter_number, .lines = std.ArrayList([]const u8).init(self.allocator) };
 
         // First scan for the container divs that contain the info we want
         // then read its children

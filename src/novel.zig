@@ -36,7 +36,7 @@ pub fn get(pool: *zqlite.Pool, allocator: Allocator, id: []const u8) !?Self {
         defer row.deinit();
 
         return .{
-            .id = id,
+            .id = try allocator.dupe(u8, id),
             .title = try allocator.dupe(u8, row.text(2)),
             .slug = try allocator.dupe(u8, row.text(1)),
             .chapter = @intCast(row.int(3)),
@@ -79,5 +79,5 @@ pub fn upsert(self: *const Self, pool: *zqlite.Pool) !void {
     const conn = pool.acquire();
     defer pool.release(conn);
 
-    try conn.exec("INSERT OR REPLACE INTO novel (id, slug, title, chapter, max_chapters) VALUES (?1, ?2, ?3, ?4, ?5)", .{ self.id, self.url, self.title, self.chapter, self.chapters });
+    try conn.exec("INSERT OR REPLACE INTO novel (id, slug, title, chapter, max_chapters) VALUES (?1, ?2, ?3, ?4, ?5)", .{ self.id, self.slug, self.title, self.chapter, self.chapters });
 }

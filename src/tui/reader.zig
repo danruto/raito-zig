@@ -59,21 +59,16 @@ const Context = struct {
 
     fn reset_span_safe(self: *Context) !void {
         const chapter = self.chapter orelse unreachable;
-        var had_span = false;
         if (self.span) |_| {
             logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "span existed, deiniting").log();
             self.span.?.deinit();
-            had_span = true;
         }
         const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(self.offset)..]);
         self.span = span;
 
         if (self.tui.findByIdTyped(tuile.Label, "reader-view")) |view| {
             logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "reader-view exists").log();
-            if (had_span) {
-                logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "span existed, setting new one").log();
-                try view.setSpan(self.span.?.view());
-            }
+            try view.setSpan(self.span.?.view());
         }
     }
 
@@ -134,18 +129,36 @@ const Context = struct {
             // We found a cached chapter so just save it into our state
             self.chapter = chapter;
 
-            logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached chapter").string("novel", novel_id).int("number", number).log();
+            logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached chapter").string("novel", chapter.novel_id).int("number", number).log();
         } else {
             const provider = Freewebnovel.init(self.gpa);
             if (try Novel.get(self.pool, self.gpa, novel_id)) |novel| {
                 if (self.chapter) |c| c.deinit(self.gpa);
-                self.chapter = try provider.fetch(novel.slug, number);
-                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached novel to fetch new chapter").string("novel", novel_id).int("number", number).log();
+
+                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached novel to fetch new chapter").string("novel", novel.id).int("number", number).log();
+                self.chapter = try provider.fetch(novel, number);
+
+                novel.deinit(self.gpa);
             } else {
                 const novel = try provider.get_novel(novel_id);
                 if (self.chapter) |c| c.deinit(self.gpa);
-                self.chapter = try provider.fetch(novel.slug, number);
-                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "fetched new novel and chapter").string("novel", novel_id).int("number", number).log();
+
+                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "fetched new novel and chapter").string("novel", novel.id).int("number", number).log();
+                self.chapter = try provider.fetch(novel, number);
+
+                try novel.upsert(self.pool);
+
+                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "upserted novel to db").string("novel", novel.id).int("number", number).log();
+
+                novel.deinit(self.gpa);
+            }
+
+            if (self.chapter) |chapter| {
+                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "about to insert chapter to db").int("number", number).log();
+                try chapter.upsert(self.pool, self.gpa);
+                logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "inserted chapter to db").int("number", number).log();
+            } else {
+                logz.warn().ctx("TuiReaderPage.fetch_chapter").string("msg", "self.chapter somehow invalid").int("number", number).log();
             }
         }
 
