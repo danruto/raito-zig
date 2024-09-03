@@ -15,13 +15,78 @@ const status_bar_text = "[h] Prev | [l] Next | [j] Down | [k] Up | [q] Quit";
 
 pub const TuiReaderPage = @This();
 
-fn generateMultilineSpan(allocator: Allocator, lines: [][]const u8) !tuile.Span {
+// TODO: move this to the theme instead
+const text_color = color("#bfbdb6");
+
+fn generateMultilineSpan(allocator: Allocator, lines: [][]const u8, max_line_length: usize) !tuile.Span {
     var span = tuile.Span.init(allocator);
 
     for (lines) |line| {
-        try span.append(.{ .style = .{ .fg = color("#FFFFFF") }, .text = try std.mem.concat(allocator, u8, &.{ line, "\n" }) });
+        // TODO: If the line is too long push multiple spans?
+        // Split line into multple parts if it is too long
+        const adjusted_max = max_line_length - 20;
+        if (line.len > adjusted_max) {
+            // Calculate the amount of chunks required
+            const chunks_as_f32 = @as(f32, @floatFromInt(line.len / adjusted_max));
+            const chunks_normalised: usize = @intFromFloat(@ceil(chunks_as_f32));
+            const chunks_required = chunks_normalised + 1;
+            logz.debug()
+                .ctx("tui.reader.generateMutlilineSpan")
+                .string("msg", "calculating chunks for line")
+                .string("line", line)
+                .int("line.len", line.len)
+                .int("adjusted max", adjusted_max)
+                .int("max_line_length", max_line_length)
+                .float("chunks_as_f32", chunks_as_f32)
+                .int("chunks_normalised", chunks_normalised)
+                .int("chunks_required", chunks_required)
+                .log();
+
+            // + 1 for the rest of the text
+            // TODO: Peek iters for word breaks
+            var start: usize = 0;
+            var end: usize = adjusted_max;
+            for (0..chunks_required) |ii| {
+                var chunk_end = end;
+                // var end = @min((ii + 1) * adjusted_max, line.len);
+
+                // Find the first " " rune from end to keep word breaks from happening
+                while (chunk_end > 0) : (chunk_end -= 1) {
+                    if (line[chunk_end] == ' ') {
+                        end = @min(chunk_end, line.len - 1);
+                        break;
+                    }
+                }
+
+                logz.debug()
+                    .ctx("tui.reader.generateMutlilineSpan")
+                    .string("msg", "building chunk with")
+                    .int("current_chunk", ii)
+                    .int("start", start)
+                    .int("end", end)
+                    .int("chunk_end", chunk_end)
+                    .string("chunk_text", line[start..end])
+                    .log();
+
+                try span.append(.{ .style = .{ .fg = text_color }, .text = line[start..end] });
+                try span.appendPlain("\n");
+
+                // Update our new pointer positions for start
+                start = end;
+                end = @min(end + adjusted_max, line.len - 1);
+            }
+        } else {
+            logz.debug()
+                .ctx("tui.reader.generateMutlilineSpan")
+                .string("msg", "line is within adjusted_max")
+                .string("line", line)
+                .log();
+            try span.append(.{ .style = .{ .fg = text_color }, .text = line });
+            try span.appendPlain("\n");
+        }
+
         // Add another newline to give some spacing to the text for readability
-        try span.append(.{ .style = .{ .fg = color("#FFFFFF") }, .text = "\n" });
+        try span.appendPlain("\n\n");
     }
 
     return span;
@@ -31,9 +96,9 @@ fn generateMultilineSpanUnmanaged(allocator: Allocator, lines: [][]const u8) !tu
     var span = tuile.SpanUnmanaged{};
 
     for (lines) |line| {
-        try span.append(allocator, .{ .style = .{ .fg = color("#FFFFFF") }, .text = try std.mem.concat(allocator, u8, &.{ line, "\n" }) });
+        try span.append(allocator, .{ .style = .{ .fg = text_color }, .text = try std.mem.concat(allocator, u8, &.{ line, "\n" }) });
         // Add another newline to give some spacing to the text for readability
-        try span.append(allocator, .{ .style = .{ .fg = color("#FFFFFF") }, .text = "\n" });
+        try span.appendPlain(allocator, "\n");
     }
 
     return span;
@@ -61,7 +126,7 @@ const Context = struct {
         const view = self.tui.findByIdTyped(tuile.Label, "reader-view") orelse unreachable;
         const chapter = self.chapter orelse unreachable;
         self.span.?.deinit();
-        const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(self.offset)..]);
+        const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(self.offset)..], self.tui.window_size.x);
         self.span = span;
         try view.setSpan(self.span.?.view());
     }
@@ -72,12 +137,17 @@ const Context = struct {
             logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "span existed, deiniting").log();
             self.span.?.deinit();
         }
-        const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(self.offset)..]);
+
+        logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "resetting span").log();
+        const span = try generateMultilineSpan(self.arena, chapter.lines.items[@intCast(self.offset)..], self.tui.window_size.x);
         self.span = span;
+        logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "reset span").log();
 
         if (self.tui.findByIdTyped(tuile.Label, "reader-view")) |view| {
-            logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "reader-view exists").log();
+            logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "reader-view exists, so setting span").log();
             try view.setSpan(self.span.?.view());
+        } else {
+            logz.debug().ctx("TuiReaderPage.Context.reset_span_safe").string("msg", "reader-view does not exist yet").log();
         }
     }
 
@@ -131,12 +201,24 @@ const Context = struct {
     }
 
     pub fn fetch_chapter(self: *Context, novel_id: []const u8, number: usize) !void {
+        logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "fetching chapter").string("novel", novel_id).int("number", number).log();
+
         self.offset = 0;
 
         if (try Chapter.get(self.pool, self.gpa, novel_id, number)) |chapter| {
             if (self.chapter) |c| c.deinit(self.gpa);
             // We found a cached chapter so just save it into our state
             self.chapter = chapter;
+
+            if (try Novel.get(self.pool, self.gpa, chapter.novel_id)) |novel| {
+                // Update novel current chapter
+                var n = try novel.clone(self.gpa);
+                n.chapter = number;
+                try n.upsert(self.pool);
+
+                n.deinit(self.gpa);
+                novel.deinit(self.gpa);
+            }
 
             logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached chapter").string("novel", chapter.novel_id).int("number", number).log();
         } else {
@@ -147,6 +229,12 @@ const Context = struct {
                 logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached novel to fetch new chapter").string("novel", novel.id).int("number", number).log();
                 self.chapter = try provider.fetch(novel, number);
 
+                // Update novel current chapter
+                var n = try novel.clone(self.gpa);
+                n.chapter = number;
+                try n.upsert(self.pool);
+
+                n.deinit(self.gpa);
                 novel.deinit(self.gpa);
             } else {
                 const novel = try provider.get_novel(novel_id);
@@ -155,7 +243,11 @@ const Context = struct {
                 logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "fetched new novel and chapter").string("novel", novel.id).int("number", number).log();
                 self.chapter = try provider.fetch(novel, number);
 
-                try novel.upsert(self.pool);
+                var n = try novel.clone(self.gpa);
+                n.chapter = number;
+                try n.upsert(self.pool);
+
+                n.deinit(self.gpa);
 
                 logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "upserted novel to db").string("novel", novel.id).int("number", number).log();
 
@@ -291,7 +383,15 @@ pub fn render(self: *TuiReaderPage) !*tuile.StackLayout {
             .layout = .{ .flex = 1 },
         }, tuile.vertical(.{ .id = "reader-container", .layout = .{ .alignment = .{ .h = .center, .v = .top } } }, .{
             tuile.label(.{ .id = "reader-title", .text = if (self.ctx.chapter) |chapter| chapter.title else null }),
-            tuile.label(.{ .id = "reader-view", .span = if (self.ctx.span) |span| span.view() else null, .text = if (self.ctx.span) |_| null else "Chapter Unavailable", .layout = .{ .min_width = self.ctx.tui.window_size.x } }),
+            tuile.label(.{
+                .id = "reader-view",
+                .span = if (self.ctx.span) |span| span.view() else null,
+                .text = if (self.ctx.span) |_| null else "Chapter Unavailable",
+                .layout = .{
+                    .min_width = self.ctx.tui.window_size.x - 20,
+                    .max_width = self.ctx.tui.window_size.x - 20,
+                },
+            }),
         })),
         tuile.label(.{ .id = "reader-status-bar", .text = status_bar_text }),
     });

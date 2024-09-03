@@ -35,6 +35,7 @@ pub fn get(pool: *zqlite.Pool, allocator: Allocator, id: []const u8) !?Self {
     if (try conn.row("SELECT id, slug, title, chapter, max_chapters FROM novel WHERE id = ?", .{id})) |row| {
         defer row.deinit();
 
+        logz.debug().ctx("Novel.get").string("msg", "found novel in database").string("id", id).log();
         return .{
             .id = try allocator.dupe(u8, id),
             .title = try allocator.dupe(u8, row.text(2)),
@@ -44,6 +45,7 @@ pub fn get(pool: *zqlite.Pool, allocator: Allocator, id: []const u8) !?Self {
         };
     }
 
+    logz.debug().ctx("Novel.get").string("msg", "couldn't find novel in database").string("id", id).log();
     return null;
 }
 
@@ -79,5 +81,17 @@ pub fn upsert(self: *const Self, pool: *zqlite.Pool) !void {
     const conn = pool.acquire();
     defer pool.release(conn);
 
+    logz.debug().ctx("Novel.upsert").fmt("novel", "{any}", .{self}).log();
+
     try conn.exec("INSERT OR REPLACE INTO novel (id, slug, title, chapter, max_chapters) VALUES (?1, ?2, ?3, ?4, ?5)", .{ self.id, self.slug, self.title, self.chapter, self.chapters });
+}
+
+pub fn clone(self: *const Self, allocator: Allocator) !Self {
+    return .{
+        .id = try allocator.dupe(u8, self.id),
+        .title = try allocator.dupe(u8, self.title),
+        .slug = try allocator.dupe(u8, self.slug),
+        .chapters = self.chapters,
+        .chapter = self.chapter,
+    };
 }
