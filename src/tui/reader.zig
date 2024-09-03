@@ -11,6 +11,8 @@ const Allocator = std.mem.Allocator;
 const PageContext = @import("page.zig").PageContext;
 const color = tuile.color;
 
+const status_bar_text = "[h] Prev | [l] Next | [j] Down | [k] Up | [q] Quit";
+
 pub const TuiReaderPage = @This();
 
 fn generateMultilineSpan(allocator: Allocator, lines: [][]const u8) !tuile.Span {
@@ -37,6 +39,11 @@ fn generateMultilineSpanUnmanaged(allocator: Allocator, lines: [][]const u8) !tu
     return span;
 }
 
+fn onChangeChapterInputChanged(opt_self: ?*Context, value: []const u8) void {
+    const self = opt_self.?;
+    self.text = value;
+}
+
 const Context = struct {
     tui: *tuile.Tuile,
     gpa: Allocator,
@@ -47,6 +54,8 @@ const Context = struct {
     chapter: ?Chapter = null,
     span: ?tuile.Span = null,
     offset: isize = 0,
+
+    text: ?[]const u8 = null,
 
     fn reset_span(self: *Context) !void {
         const view = self.tui.findByIdTyped(tuile.Label, "reader-view") orelse unreachable;
@@ -180,6 +189,30 @@ pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.E
             'k' => try ctx.scrollUp(),
             'h' => try ctx.prevChapter(),
             'l' => try ctx.nextChapter(),
+            'c' => {
+                // Render an input for changing chapter
+                // If it already exists, then delete it
+                if (ctx.tui.findByIdTyped(tuile.StackLayout, "reader-page")) |view| {
+                    if (ctx.tui.findByIdTyped(tuile.Input, "reader-change-chapter")) |input| {
+                        _ = try view.removeChild(input.widget());
+                        ctx.text = null;
+                    } else {
+                        // TODO: horz, label + input?
+                        try view.addChild(tuile.input(.{
+                            .id = "reader-change-chapter",
+                            .placeholder = "chapter number",
+                            .on_value_changed = .{
+                                .cb = @ptrCast(&onChangeChapterInputChanged),
+                                .payload = ctx,
+                            },
+                        }));
+                    }
+
+                    return .consumed;
+                }
+
+                return .ignored;
+            },
             'q' => {
                 ctx.tui.stop();
                 return .consumed;
@@ -192,6 +225,36 @@ pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.E
             .Up => try ctx.scrollUp(),
             .Left => try ctx.prevChapter(),
             .Right => try ctx.nextChapter(),
+            .Enter => {
+                // TODO: Handle change chapter
+                if (ctx.tui.findByIdTyped(tuile.Input, "reader-change-chapter")) |input| {
+                    if (ctx.tui.findByIdTyped(tuile.StackLayout, "reader-page")) |view| {
+                        if (ctx.text) |text| {
+
+                            // try to convert the text to usize
+                            const number = std.fmt.parseUnsigned(usize, text, 10) catch ctx.chapter.?.number;
+                            try ctx.fetch_chapter(ctx.chapter.?.novel_id, number);
+                            _ = try view.removeChild(input.widget());
+                            ctx.text = null;
+
+                            return .consumed;
+                        }
+                    }
+                }
+                return .ignored;
+            },
+            .Escape => {
+                if (ctx.tui.findByIdTyped(tuile.Input, "reader-change-chapter")) |input| {
+                    if (ctx.tui.findByIdTyped(tuile.StackLayout, "reader-page")) |view| {
+                        _ = try view.removeChild(input.widget());
+                        ctx.text = null;
+
+                        return .consumed;
+                    }
+                }
+
+                return .ignored;
+            },
 
             else => .ignored,
         },
@@ -218,6 +281,7 @@ pub fn destroy(self: *TuiReaderPage) void {
 
 pub fn render(self: *TuiReaderPage) !*tuile.StackLayout {
     return tuile.vertical(.{
+        .id = "reader-page",
         .layout = .{ .flex = 1 },
     }, .{
         tuile.block(.{
@@ -229,6 +293,6 @@ pub fn render(self: *TuiReaderPage) !*tuile.StackLayout {
             tuile.label(.{ .id = "reader-title", .text = if (self.ctx.chapter) |chapter| chapter.title else null }),
             tuile.label(.{ .id = "reader-view", .span = if (self.ctx.span) |span| span.view() else null, .text = if (self.ctx.span) |_| null else "Chapter Unavailable", .layout = .{ .min_width = self.ctx.tui.window_size.x } }),
         })),
-        tuile.label(.{ .id = "reader-status-bar", .text = "[h] Prev | [l] Next | [j] Down | [k] Up | [q] Quit" }),
+        tuile.label(.{ .id = "reader-status-bar", .text = status_bar_text }),
     });
 }

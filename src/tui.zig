@@ -33,7 +33,6 @@ pub const Tui = struct {
         var tui: *tuile.Tuile = @ptrCast(@alignCast(ptr));
         switch (event) {
             .key => |key| if (key == .Escape) {
-                // TODO: deinit pages
                 tui.stop();
                 return .consumed;
             },
@@ -101,16 +100,16 @@ pub const Tui = struct {
             ),
         );
 
+        // Per page events
+        try home.addEventHandler();
+        try search.addEventHandler();
+        try reader.addEventHandler();
+
         // Global application events
         try tui.addEventHandler(.{
             .handler = globalKeyHandler,
             .payload = &tui,
         });
-
-        // Per page events
-        try home.addEventHandler();
-        try search.addEventHandler();
-        try reader.addEventHandler();
 
         try tui.run();
     }

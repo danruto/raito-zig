@@ -142,6 +142,13 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                     }
                 }
 
+                const input = ctx.tui.findByIdTyped(tuile.Input, "search-input") orelse unreachable;
+                if (input.focus_handler.focused) {
+                    if (btn.on_press) |on_press| {
+                        on_press.call();
+                    }
+                }
+
                 const list = ctx.tui.findByIdTyped(tuile.List, "search-list") orelse unreachable;
                 if (list.focus_handler.focused) {
                     const focused_item = list.items.items[list.selected_index];
@@ -171,6 +178,7 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                 } else {
                     logz.debug().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "search-list was not focused").log();
                 }
+
                 return .consumed;
             },
             else => {},
