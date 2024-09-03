@@ -4,6 +4,7 @@
 const std = @import("std");
 const rem = @import("rem");
 const logz = @import("logz");
+const zul = @import("zul");
 
 const Allocator = std.mem.Allocator;
 
@@ -139,23 +140,83 @@ pub const CSSParser = struct {
         var ret = std.ArrayListUnmanaged(CSSDomNode){};
         for (node_stack.items) |node| {
             var final_node: CSSDomNode = .{ .element = node.node.element, .text = null };
+
+            var sb = zul.StringBuilder.init(arena_allocator);
+            defer sb.deinit();
+
             // Find matching cdata
-            var num_children = node.node.element.children.items.len;
-            while (num_children > 0) : (num_children -= 1) {
-                switch (node.node.element.children.items[num_children - 1]) {
-                    .cdata => |c| {
-                        // Only capture the first (likely only)
-                        if (final_node.text == null) {
-                            final_node.text = std.zig.fmtEscapes(c.data.items).data;
-                            break;
+            const num_children = node.node.element.children.items.len;
+            var ii: u5 = 0;
+            while (ii < num_children) : (ii += 1) {
+                switch (node.node.element.children.items[ii]) {
+                    .cdata => |cd| {
+                        switch (cd.interface) {
+                            .text => {
+                                const text = std.zig.fmtEscapes(cd.data.items).data;
+
+                                // Only save texts that start with " " as they seem to be part of the
+                                // chapter and those that are trimmed are ads
+                                if (std.mem.startsWith(u8, text, " ")) {
+                                    try sb.write(text);
+                                }
+
+                                logz
+                                    .debug()
+                                    .ctx("css_parser.parse_many")
+                                    .int("num_children", num_children)
+                                    .int("ii", ii)
+                                    .string("msg", "processed cdata to get")
+                                    .string("text", text)
+                                    .string("sb", sb.string())
+                                    .log();
+                            },
+
+                            .comment => {},
                         }
                     },
-                    else => {},
+
+                    .element => |child_element| {
+                        // Sometimes it'll have HTML components embedded within e.g. <i>that</i>
+                        // so just extract it out, only 1 level deep if it does exist.
+                        if (child_element.children.items.len > 0) {
+                            var jj: u5 = 0;
+                            while (jj < child_element.children.items.len) : (jj += 1) {
+                                switch (child_element.children.items[jj]) {
+                                    .cdata => |child_cd| {
+                                        switch (child_cd.interface) {
+                                            .text => {
+                                                const text = std.zig.fmtEscapes(child_cd.data.items).data;
+
+                                                try sb.write(text);
+
+                                                logz
+                                                    .debug()
+                                                    .ctx("css_parser.parse_many")
+                                                    .int("child_element_num_children", child_element.children.items.len)
+                                                    .int("jj", jj)
+                                                    .string("msg", "processed child cdata to get")
+                                                    .string("text", text)
+                                                    .string("sb", sb.string())
+                                                    .log();
+                                            },
+
+                                            .comment => {},
+                                        }
+                                    },
+
+                                    else => {},
+                                }
+                            }
+                        }
+                    },
                 }
             }
 
+            final_node.text = try self.allocator.dupe(u8, sb.string());
+
             try ret.append(self.allocator, final_node);
         }
+
         return try ret.toOwnedSlice(self.allocator);
     }
 
@@ -314,7 +375,7 @@ pub const CSSParser = struct {
         // If this is the final item in the stack and it is a cdata, save it
         if (final_node != null and node_stack.items.len > 0) {
             logz.debug()
-                .ctx("parse_single")
+                .ctx("css_parser.parse_single")
                 .string("msg", "processing cdata for final node")
                 .log();
             while (node_stack.items.len > 0) {
@@ -327,8 +388,9 @@ pub const CSSParser = struct {
                                 // There should only be 1 text node as a child
                                 if (final_node.?.text == null) {
                                     final_node.?.text = std.zig.fmtEscapes(cd.data.items).data;
+                                    logz.warn().ctx("css_parser.parse_single").string("msg", "processed cdata to get").string("text", final_node.?.text).log();
                                 } else {
-                                    logz.warn().ctx("parse_single").string("msg", "Somehow we have more .text types").log();
+                                    logz.warn().ctx("css_parser.parse_single").string("msg", "found more cdata when we have already saved").fmt("cdata", "{s}", .{cd.data.items}).log();
                                 }
                             },
 
@@ -336,13 +398,14 @@ pub const CSSParser = struct {
                             .comment => {},
                         }
                     },
+
                     // We have already processed everything we need from elements
                     .element => {},
                 }
             }
         }
 
-        logz.debug().ctx("parse_single").string("msg", "returning final_node").log();
+        logz.debug().ctx("css_parser.parse_single").string("msg", "returning final_node").log();
 
         return final_node;
     }

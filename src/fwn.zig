@@ -162,7 +162,14 @@ pub fn search(self: *const Freewebnovel, term: []const u8) ![]Novel {
         defer css.deinit();
 
         const rows = try css.parse_many("div.li-row");
-        defer self.allocator.free(rows);
+        defer {
+            for (rows) |row| {
+                if (row.text) |text| {
+                    self.allocator.free(text);
+                }
+            }
+            self.allocator.free(rows);
+        }
 
         for (rows) |row| {
             if (row.element) |row_element| {
@@ -287,7 +294,14 @@ pub fn fetch(self: *const Freewebnovel, novel: Novel, chapter_number: usize) !Ch
         }
 
         const content = try css.parse_many("div#article>p");
-        defer self.allocator.free(content);
+        defer {
+            for (content) |content_row| {
+                if (content_row.text) |text| {
+                    self.allocator.free(text);
+                }
+            }
+            self.allocator.free(content);
+        }
 
         for (content) |line| {
             if (line.text) |text| {

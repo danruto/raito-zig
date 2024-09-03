@@ -204,6 +204,7 @@ pub fn render(self: *TuiSearchPage) !*tuile.StackLayout {
             .{},
             .{
                 tuile.input(.{
+                    .id = "search-input",
                     .layout = .{ .flex = 1 },
                     .on_value_changed = .{
                         .cb = @ptrCast(&onInputChanged),
