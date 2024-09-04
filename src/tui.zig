@@ -93,10 +93,26 @@ pub const Tui = struct {
 
         try tui.add(
             tuile.themed(
-                .{ .id = "themed", .theme = ayu() },
-                tuile.vertical(.{ .id = "page-container", .layout = .{ .flex = 1 } }, .{
-                    try home.render(),
-                }),
+                .{
+                    .id = "themed",
+                    .theme = ayu(),
+                },
+                tuile.block(
+                    .{
+                        .layout = .{ .flex = 1 },
+                        .padding = .{ .top = 1, .bottom = 1, .left = 1, .right = 1 },
+                    },
+                    // tuile.label(.{ .text = "tesert234" }),
+                    tuile.vertical(
+                        .{
+                            .id = "page-container",
+                            .layout = .{ .flex = 1 },
+                        },
+                        .{
+                            try home.render(),
+                        },
+                    ),
+                ),
             ),
         );
 

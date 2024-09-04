@@ -48,11 +48,14 @@ fn onSearch(opt_self: ?*TuiSearchPage) void {
             const provider = Freewebnovel.init(self.ctx.gpa);
             self.ctx.novels = provider.search(text) catch unreachable;
             errdefer {
-                for (self.ctx.novels) |novel| {
-                    novel.deinit(self.ctx.gpa);
+                if (self.ctx.novels) |novels| {
+                    for (novels) |novel| {
+                        novel.deinit(self.ctx.gpa);
+                    }
+                    self.ctx.gpa.free(novels);
                 }
-                self.ctx.gpa.free(self.ctx.novels);
             }
+            // self.ctx.novels = provider.sample() catch unreachable;
 
             // Need to reset the list since we don't have access to the internal.allocator
             // to append more items to the list
@@ -76,11 +79,33 @@ fn onSearch(opt_self: ?*TuiSearchPage) void {
             }
 
             logz.debug().ctx("tui.search.onSearch").string("msg", "Recreating list").log();
-            list = tuile.list(.{
-                .id = "search-list",
-                .layout = .{ .flex = 16 },
-            }, items.items[0..]) catch unreachable;
+            list = tuile.list(
+                .{
+                    .id = "search-list",
+                    .layout = .{ .flex = 16 },
+                },
+                items.items[0..],
+            ) catch unreachable;
             logz.debug().ctx("tui.search.onSearch").string("msg", "Recreated list").log();
+
+            // Toggle focus to list only when there were results
+            if (self.ctx.novels) |novels| {
+                if (novels.len > 0) {
+                    const input = self.ctx.tui.findByIdTyped(tuile.Input, "search-input") orelse unreachable;
+                    const btn = self.ctx.tui.findByIdTyped(tuile.Button, "search-search-button") orelse unreachable;
+
+                    if (input.focus_handler.focused) {
+                        input.focus_handler.focused = false;
+                        _ = input.handleEvent(.focus_out) catch unreachable;
+                    }
+                    if (btn.focus_handler.focused) {
+                        btn.focus_handler.focused = false;
+                        _ = btn.handleEvent(.focus_out) catch unreachable;
+                    }
+                    list.focus_handler.focused = true;
+                    _ = list.handleEvent(.{ .focus_in = .front }) catch unreachable;
+                }
+            }
         }
     }
 }
@@ -135,20 +160,7 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                 return .consumed;
             },
             .Enter => {
-                const btn = ctx.tui.findByIdTyped(tuile.Button, "search-search-button") orelse unreachable;
-                if (btn.focus_handler.focused) {
-                    if (btn.on_press) |on_press| {
-                        on_press.call();
-                    }
-                }
-
-                const input = ctx.tui.findByIdTyped(tuile.Input, "search-input") orelse unreachable;
-                if (input.focus_handler.focused) {
-                    if (btn.on_press) |on_press| {
-                        on_press.call();
-                    }
-                }
-
+                // Handle list first as the btn and input will change the focus to it on success
                 const list = ctx.tui.findByIdTyped(tuile.List, "search-list") orelse unreachable;
                 if (list.focus_handler.focused) {
                     const focused_item = list.items.items[list.selected_index];
@@ -179,6 +191,19 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                     logz.debug().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "search-list was not focused").log();
                 }
 
+                const btn = ctx.tui.findByIdTyped(tuile.Button, "search-search-button") orelse unreachable;
+                if (btn.focus_handler.focused) {
+                    if (btn.on_press) |on_press| {
+                        on_press.call();
+                    }
+                }
+
+                const input = ctx.tui.findByIdTyped(tuile.Input, "search-input") orelse unreachable;
+                if (input.focus_handler.focused) {
+                    if (btn.on_press) |on_press| {
+                        on_press.call();
+                    }
+                }
                 return .consumed;
             },
             else => {},
@@ -199,40 +224,46 @@ pub fn addEventHandler(self: *TuiSearchPage) !void {
 }
 
 pub fn render(self: *TuiSearchPage) !*tuile.StackLayout {
-    return try tuile.vertical(.{ .id = "search-page", .layout = .{ .flex = 1 } }, .{
-        tuile.horizontal(
-            .{},
-            .{
-                tuile.input(.{
-                    .id = "search-input",
-                    .layout = .{ .flex = 1 },
-                    .on_value_changed = .{
-                        .cb = @ptrCast(&onInputChanged),
-                        .payload = self,
-                    },
-                }),
-                tuile.button(.{
-                    .id = "search-search-button",
-                    .text = "Search",
-                    .on_press = .{
-                        .cb = @ptrCast(&onSearch),
-                        .payload = self,
-                    },
-                }),
-            },
-        ),
-        tuile.spacer(.{ .layout = .{ .flex = 1 } }),
-        tuile.list(
-            .{
-                .id = "search-list",
-                .layout = .{ .flex = 16 },
-            },
-            &.{
+    return try tuile.vertical(
+        .{
+            .id = "search-page",
+            .layout = .{ .flex = 1 },
+        },
+        .{
+            tuile.horizontal(
+                .{},
                 .{
-                    .label = try tuile.label(.{ .text = "Waiting for search..." }),
-                    .value = null,
+                    tuile.input(.{
+                        .id = "search-input",
+                        .layout = .{ .flex = 1 },
+                        .on_value_changed = .{
+                            .cb = @ptrCast(&onInputChanged),
+                            .payload = self,
+                        },
+                    }),
+                    tuile.button(.{
+                        .id = "search-search-button",
+                        .text = "Search",
+                        .on_press = .{
+                            .cb = @ptrCast(&onSearch),
+                            .payload = self,
+                        },
+                    }),
                 },
-            },
-        ),
-    });
+            ),
+            tuile.spacer(.{ .layout = .{ .flex = 1 } }),
+            tuile.list(
+                .{
+                    .id = "search-list",
+                    .layout = .{ .flex = 16 },
+                },
+                &.{
+                    .{
+                        .label = try tuile.label(.{ .text = "Waiting for search..." }),
+                        .value = null,
+                    },
+                },
+            ),
+        },
+    );
 }

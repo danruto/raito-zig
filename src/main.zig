@@ -36,6 +36,7 @@ pub fn main() !void {
     tui.Tui.run(&data_pool) catch |err| {
         logz.fatal().ctx("app.tui.run").err(err).log();
         std.debug.dumpCurrentStackTrace(null);
+        _ = @errorReturnTrace();
         return err;
     };
 }

@@ -185,45 +185,50 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
     }
 
     if (novels_list.items.len == 0) {
-        for (0..35) |idx| {
-            try novels_list.append(.{
-                .label = try tuile.label(.{ .text = "item..." }),
-                .value = @ptrFromInt(idx),
-            });
-        }
+        // Insert a default placeholder type message
+        try novels_list.append(.{
+            .label = try tuile.label(.{ .text = "Press `s` to go to the search page and find something to read!" }),
+            .value = null,
+        });
     }
 
-    return try tuile.vertical(.{ .id = "home-page", .layout = .{ .flex = 1 } }, .{
-        tuile.list(
-            .{
-                .id = "home-list",
-                .layout = .{ .flex = 16 },
-            },
-            novels_list.items[0..],
-        ),
-        tuile.spacer(.{ .layout = .{ .flex = 1 } }),
-        tuile.horizontal(
-            .{},
-            .{
-                tuile.input(.{
-                    .id = "home-input",
+    return try tuile.vertical(
+        .{
+            .id = "home-page",
+            .layout = .{ .flex = 1 },
+        },
+        .{
+            tuile.list(
+                .{
+                    .id = "home-list",
                     .layout = .{ .flex = 1 },
-                    .on_value_changed = .{
-                        .cb = @ptrCast(&onInputChanged),
-                        .payload = self,
-                    },
-                }),
-                tuile.button(.{
-                    .id = "home-search-button",
-                    .text = "Search",
-                    .on_press = .{
-                        .cb = @ptrCast(&onSearch),
-                        .payload = self,
-                    },
-                }),
-            },
-        ),
-    });
+                },
+                novels_list.items[0..],
+            ),
+            tuile.spacer(.{ .layout = .{ .flex = 1 } }),
+            tuile.horizontal(
+                .{},
+                .{
+                    tuile.input(.{
+                        .id = "home-input",
+                        .layout = .{ .flex = 1 },
+                        .on_value_changed = .{
+                            .cb = @ptrCast(&onInputChanged),
+                            .payload = self,
+                        },
+                    }),
+                    tuile.button(.{
+                        .id = "home-search-button",
+                        .text = "Search",
+                        .on_press = .{
+                            .cb = @ptrCast(&onSearch),
+                            .payload = self,
+                        },
+                    }),
+                },
+            ),
+        },
+    );
 }
 
 // TODO: doesn't work

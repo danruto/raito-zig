@@ -185,6 +185,8 @@ pub fn search(self: *const Freewebnovel, term: []const u8) ![]Novel {
                 defer local_css.deinit();
 
                 if (try local_css.parse_single("h3.tit>a")) |href_node| {
+                    defer if (href_node.text) |text| self.allocator.free(text);
+
                     if (href_node.element) |element| {
                         if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "title" })) |attr_title| {
                             logz.debug().ctx("fwn.search").string("msg", "found a title").string("attr_title", attr_title).log();
@@ -212,6 +214,8 @@ pub fn search(self: *const Freewebnovel, term: []const u8) ![]Novel {
 
                 if (try local_css.parse_single("span.s1")) |chapters_node| {
                     if (chapters_node.text) |text| {
+                        defer self.allocator.free(text);
+
                         logz.debug().ctx("fwn.search").string("msg", "found chapters text").string("text", text).log();
                         const size = std.mem.replacementSize(u8, text, "Chapters", "");
                         const output = try self.allocator.alloc(u8, size);
@@ -359,6 +363,7 @@ pub fn get_novel(self: *const Freewebnovel, slug: []const u8) !Novel {
         const row = try css.parse_single("h1.tit");
         if (row) |row_title| {
             if (row_title.text) |text| {
+                defer self.allocator.free(text);
                 novel.title = try self.allocator.dupe(u8, text);
             }
         }
@@ -367,6 +372,11 @@ pub fn get_novel(self: *const Freewebnovel, slug: []const u8) !Novel {
     }
 
     return error.NotFound;
+}
+
+pub fn sample(self: *const Freewebnovel) !?[]Novel {
+    var novels = std.ArrayListUnmanaged(Novel){};
+    return try novels.toOwnedSlice(self.allocator);
 }
 
 // test "can make post request to search url" {
