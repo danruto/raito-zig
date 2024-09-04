@@ -240,6 +240,7 @@ pub fn search(self: *const Freewebnovel, term: []const u8) ![]Novel {
     return try novels.toOwnedSlice(self.allocator);
 }
 
+// TODO: rename to get_chapter
 pub fn fetch(self: *const Freewebnovel, novel: Novel, chapter_number: usize) !Chapter {
     const chapter_number_str = try std.fmt.allocPrint(self.allocator, "{d}", .{chapter_number});
     defer self.allocator.free(chapter_number_str);
@@ -368,15 +369,6 @@ pub fn get_novel(self: *const Freewebnovel, slug: []const u8) !Novel {
     return error.NotFound;
 }
 
-pub fn sample_novel(self: *const Freewebnovel) Novel {
-    _ = self;
-    return Novel.sample();
-}
-
-pub fn sample_chapter(self: *const Freewebnovel, number: usize) !Chapter {
-    return try Chapter.sample(self.allocator, number);
-}
-
 // test "can make post request to search url" {
 //     const url = try std.mem.concat(std.testing.allocator, u8, &.{ "https://", "freewebnovel.noveleast.com", "/search/" });
 //     defer std.testing.allocator.free(url);
@@ -389,156 +381,6 @@ pub fn sample_chapter(self: *const Freewebnovel, number: usize) !Chapter {
 //     const freewebnovel = Freewebnovel.init(std.testing.allocator);
 //     const s = try freewebnovel.make_post_req(url, &form);
 //     defer std.testing.allocator.free(s);
-// }
-
-// test "can load search file and parse the results" {
-//     const allocator = std.testing.allocator;
-
-//     // Create the DOM in which the parsed Document will be created.
-//     var dom = rem.Dom{ .allocator = allocator };
-//     defer dom.deinit();
-
-//     // Create the HTML parser.
-//     const file = try std.fs.cwd().openFile("src/search.html", .{});
-//     defer file.close(); // Ensure the file is closed after use
-
-//     // Read the entire file into memory
-//     const file_size = try file.getEndPos();
-//     const file_content = try allocator.alloc(u8, file_size);
-//     defer allocator.free(file_content);
-
-//     // Read the file content
-//     _ = try file.read(file_content);
-
-//     // Convert the file content to a string and print it
-//     const s = file_content[0..];
-//     const decoded_input = try dom_utils.utf8DecodeStringRuntime(allocator, s);
-//     defer allocator.free(decoded_input);
-
-//     var parser = try rem.Parser.init(&dom, decoded_input, allocator, .ignore, false);
-//     defer parser.deinit();
-
-//     // This causes the parser to read the input and produce a Document.
-//     try parser.run();
-
-//     // `errors` returns the list of parse errors that were encountered while parsing.
-//     // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
-//     const errors = parser.errors();
-//     std.debug.assert(errors.len == 0);
-
-//     // We can now print the resulting Document to the console.
-//     const document = parser.getDocument();
-
-//     if (document.element) |document_element| {
-//         var novels = std.ArrayList(Novel).init(allocator);
-//         defer {
-//             for (novels.items) |novel| {
-//                 allocator.free(novel.id);
-//                 allocator.free(novel.title);
-//                 allocator.free(novel.url);
-//             }
-//             novels.deinit();
-//         }
-
-//         var css = try css_parser.CSSParser.init(allocator, document_element);
-//         defer css.deinit();
-
-//         const rows = try css.parse_many("div.li-row");
-//         defer allocator.free(rows);
-
-//         for (rows) |row| {
-//             if (row.element) |row_element| {
-//                 var novel: Novel = .{
-//                     .id = "",
-//                     .title = "",
-//                     .url = "",
-//                     .chapters = 0,
-//                     .chapter = 0,
-//                 };
-
-//                 var local_css = try css_parser.CSSParser.init(allocator, row_element);
-//                 defer local_css.deinit();
-
-//                 std.debug.print("\tProcessing h3.tit>a\n", .{});
-//                 if (try local_css.parse_single("h3.tit>a")) |href_node| {
-//                     std.debug.print("\tProcessed h3.tit>a\n", .{});
-//                     if (href_node.element) |element| {
-//                         std.debug.print("\tProcessing h3.tit>a href_node\n", .{});
-//                         if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "title" })) |attr_title| {
-//                             novel.title = try allocator.dupe(u8, attr_title);
-//                         }
-
-//                         if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "href" })) |attr_url| {
-//                             // The string size will only reduce, so we just allocate the original size and do our replacements
-//                             const output = try allocator.alloc(u8, attr_url.len);
-
-//                             _ = std.mem.replace(u8, attr_url, ".html", "", output);
-//                             _ = std.mem.replace(u8, attr_url, "/free-novel", "", output);
-
-//                             novel.url = output;
-//                         }
-//                     }
-//                 }
-
-//                 std.debug.print("\tProcessing span.s1\n", .{});
-//                 if (try local_css.parse_single("span.s1")) |chapters_node| {
-//                     std.debug.print("\tProcessed span.s1\n", .{});
-//                     if (chapters_node.text) |text| {
-//                         std.debug.print("\tProcessing span.s1 chapters_node\n", .{});
-//                         const size = std.mem.replacementSize(u8, text, "Chapters", "");
-//                         const output = try allocator.alloc(u8, size);
-//                         defer allocator.free(output);
-//                         _ = std.mem.replace(u8, text, "Chapters", "", output);
-
-//                         // std.mem.replaceScalar(u8, text, "Chapters", "");
-//                         novel.chapters = try std.fmt.parseUnsigned(usize, std.mem.trim(u8, output, " "), 10);
-//                         // Start at the first chapter
-//                         novel.chapter = 1;
-//                         std.debug.print("\tProcessed span.s1 chapters_node\n", .{});
-//                     }
-//                 }
-
-//                 if (!std.mem.eql(u8, novel.title, "")) {
-//                     try novels.append(novel);
-//                 }
-//             }
-//         }
-
-//         for (novels.items) |novel| {
-//             std.debug.print("\tNovel: t: {s}, u: {s}, c: {any}\n", .{ novel.title, novel.url, novel.chapters });
-//         }
-//     }
-// }
-
-// test "can load dom from str" {
-// const input = @embedFile("search.html");
-// @setEvalBranchQuota(200000);
-// const decoded_input = &rem.util.utf8DecodeStringComptime(input);
-
-// if (try load_dom(std.testing.allocator, input)) |document| {
-//     var css = try css_parser.CSSParser.init(std.testing.allocator, &document);
-//     defer css.node_stack.deinit(std.testing.allocator);
-
-//     const rows = try css.parse2("div.li-row");
-//     defer std.testing.allocator.free(rows);
-// }
-// }
-
-// test "can search and parse the results" {
-//     const freewebnovel = Freewebnovel.init(std.testing.allocator);
-//     const resp = try freewebnovel.search("martial");
-//     std.debug.print("Got resp: {any}\n", .{resp});
-//     try std.testing.expectEqual(50, resp.len);
-//     defer {
-//         for (resp) |item| {
-//             // _ = item;
-//             std.testing.allocator.free(item.id);
-//             std.testing.allocator.free(item.title);
-//             std.testing.allocator.free(item.url);
-// item.deinit();
-//         }
-//         defer std.testing.allocator.free(resp);
-//     }
 // }
 
 // test "can fetch a chapter" {

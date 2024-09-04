@@ -41,7 +41,7 @@ pub const CSSParser = struct {
         self.node_stack.deinit(self.allocator);
     }
 
-    fn is_match(element: *const rem.dom.Element, selector_node: CSSSelectorNode) bool {
+    fn is_match(element: *const rem.Dom.Element, selector_node: CSSSelectorNode) bool {
         var match = element.element_type == selector_node.element_type;
 
         if (selector_node.id) |id| {
@@ -317,9 +317,10 @@ pub const CSSParser = struct {
             var sb = zul.StringBuilder.init(arena_allocator);
             defer sb.deinit();
 
-            try process_cdata(&sb, final_node_.element, 0);
+            const element = final_node_.element orelse unreachable;
+            try process_cdata(&sb, element, 0);
 
-            final_node.text = try self.allocator.dupe(u8, sb.string());
+            final_node.?.text = try self.allocator.dupe(u8, sb.string());
         }
 
         logz.debug().ctx("css_parser.parse_single").string("msg", "returning final_node").log();
@@ -546,150 +547,210 @@ pub const CSSSelector = struct {
     }
 };
 
-// test "basic css selectors parsing" {
-//     const test_cases = [_][]const u8{
-//         "h1.tit",
-//         "h3[class=\"tit\"]>a",
-//         "em[class=\"num\"]",
-//         "div[class=\"txt \"]",
-//         "div[class=\"txt \"]>#article>p",
-//         "div[class=\"li-row\"]",
-//         "span[class=\"s1\"]",
-//         "span[class=\"chapter\"]",
-//     };
+const t = std.testing;
 
-//     for (test_cases) |tc| {
-//         var selector = try CSSSelector.init(std.testing.allocator, tc);
-//         defer selector.nodes.deinit(std.testing.allocator);
-//         try selector.print();
-//     }
-// }
+test "basic css selectors parsing" {
+    const test_cases: []const struct {
+        s: []const u8,
+        e: struct {
+            len: u3,
+            e: []const struct {
+                element_type: ?rem.Dom.ElementType,
+                class_name: ?[]const u8,
+            },
+        },
+    } = &.{
+        .{
+            .s = "h1.tit",
+            .e = .{
+                .len = 1,
+                .e = &.{
+                    .{
+                        .element_type = .html_h1,
+                        .class_name = "tit",
+                    },
+                },
+            },
+        },
+        .{
+            .s = "h1[class=\"tit\"]>a",
+            .e = .{
+                .len = 2,
+                .e = &.{
+                    .{
+                        .element_type = .html_h1,
+                        .class_name = "tit",
+                    },
+                    .{
+                        .element_type = .html_a,
+                        .class_name = null,
+                    },
+                },
+            },
+        },
+        .{
+            .s = "em[class=\"num\"]",
+            .e = .{
+                .len = 1,
+                .e = &.{
+                    .{
+                        .element_type = .html_em,
+                        .class_name = "num",
+                    },
+                },
+            },
+        },
+        .{
+            .s = "div[class=\"txt \"]",
+            .e = .{
+                .len = 1,
+                .e = &.{
+                    .{
+                        .element_type = .html_div,
+                        .class_name = "txt ",
+                    },
+                },
+            },
+        },
+        .{
+            .s = "span.s1",
+            .e = .{
+                .len = 1,
+                .e = &.{
+                    .{
+                        .element_type = .html_span,
+                        .class_name = "s1",
+                    },
+                },
+            },
+        },
+    };
 
-// test "css parsing into dom node parsing" {
-//     const input = @embedFile("chap.html");
-//     @setEvalBranchQuota(100000);
-//     const decoded_input = &rem.util.utf8DecodeStringComptime(input);
+    for (test_cases) |tc| {
+        var selector = try CSSSelector.init(std.testing.allocator, tc.s);
+        defer selector.nodes.deinit(std.testing.allocator);
 
-//     // Create the DOM in which the parsed Document will be created.
-//     var dom = rem.Dom{ .allocator = std.testing.allocator };
-//     defer dom.deinit();
+        try t.expectEqual(tc.e.len, selector.nodes.items.len);
+        for (tc.e.e, 0..) |ce, ii| {
+            if (ce.element_type) |et| {
+                try t.expectEqual(et, selector.nodes.items[ii].element_type);
+            }
+            if (ce.class_name) |cn| {
 
-//     // Create the HTML parser.
-//     var parser = try rem.Parser.init(&dom, decoded_input, std.testing.allocator, .report, false);
-//     defer parser.deinit();
+                // Class name can be either stored in class_name or in attributes
+                const sn = selector.nodes.items[ii];
 
-//     // This causes the parser to read the input and produce a Document.
-//     try parser.run();
+                var done = false;
 
-//     // `errors` returns the list of parse errors that were encountered while parsing.
-//     // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
-//     const errors = parser.errors();
-//     std.debug.assert(errors.len == 0);
+                if (sn.class_name) |s_cn| {
+                    try t.expectEqualStrings(cn, s_cn);
+                    done = true;
+                }
 
-//     // We can now print the resulting Document to the console.
-//     const document = parser.getDocument();
+                if (sn.attribute_name) |s_an| {
+                    try t.expectEqualStrings("class", s_an);
+                    const av = sn.attribute_value orelse unreachable;
+                    try t.expectEqualStrings(cn, av);
+                    done = true;
+                }
 
-//     if (document.element) |document_element| {
-//         var css_parser = try CSSParser.init(std.testing.allocator, document_element);
-//         defer css_parser.node_stack.deinit(std.testing.allocator);
+                try t.expect(done);
+            }
+        }
+    }
+}
 
-//         // Create arena around css selector
-//         // var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-//         // const arena_allocator = arena.allocator();
-//         // defer arena.deinit();
-//         const node = try css_parser.parse("div#article>p");
-//         if (node) |n| {
-//             if (n.element) |e| {
-//                 // std.debug.print("Element: {any}\n", .{e});
-//                 const num = e.numAttributes();
-//                 for (0..num) |idx| {
-//                     const a = e.attributes.get(idx);
-//                     std.debug.print("\tAttribute: ({s})=({s})\n", .{ a.key.local_name, a.value });
-//                 }
-//             }
+test "parse sample search.html" {
+    const allocator = t.allocator;
 
-//             if (n.text) |t| {
-//                 std.debug.print("\tText: {s}", .{t});
-//                 try std.testing.expectEqualStrings(" Chapter 3157: Absolute Shocker ", t);
-//             }
-//         }
-//     }
-// }
+    const input = @embedFile("tests/search.html");
+    @setEvalBranchQuota(200000);
+    const decoded_input = &rem.util.utf8DecodeStringComptime(input);
+    // defer allocator.free(decoded_input);
 
-// test "css parsing via parse2" {
-//     const input = @embedFile("search.html");
-//     @setEvalBranchQuota(200000);
-//     const decoded_input = &rem.util.utf8DecodeStringComptime(input);
-//     // _ = decoded_input;
+    // Create the DOM in which the parsed Document will be created.
+    var dom = rem.Dom{ .allocator = allocator };
+    defer dom.deinit();
 
-//     // Create the DOM in which the parsed Document will be created.
-//     var dom = rem.Dom{ .allocator = std.testing.allocator };
-//     defer dom.deinit();
+    var parser = try rem.Parser.init(&dom, decoded_input, allocator, .ignore, false);
+    defer parser.deinit();
 
-//     // Create the HTML parser.
-//     var parser = try rem.Parser.init(&dom, decoded_input, std.testing.allocator, .ignore, false);
-//     defer parser.deinit();
+    // This causes the parser to read the input and produce a Document.
+    try parser.run();
 
-//     // This causes the parser to read the input and produce a Document.
-//     try parser.run();
+    // `errors` returns the list of parse errors that were encountered while parsing.
+    // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
+    const errors = parser.errors();
+    try t.expect(errors.len == 0);
 
-//     // `errors` returns the list of parse errors that were encountered while parsing.
-//     // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
-//     const errors = parser.errors();
-//     for (errors) |err| {
-//         std.debug.print("\tParser error: {any}\n", .{err});
-//     }
-//     std.debug.assert(errors.len == 0);
+    // We can now print the resulting Document to the console.
+    const document = parser.getDocument();
+    try t.expect(document.element != null);
 
-//     // We can now print the resulting Document to the console.
-//     const document = parser.getDocument();
+    if (document.element) |document_element| {
+        var css = try CSSParser.init(allocator, document_element);
+        defer css.deinit();
 
-//     const TestNovel = struct {
-//         id: []const u8,
-//         title: []const u8,
-//     };
+        const rows = try css.parse_many("div.li-row");
+        defer {
+            for (rows) |row| {
+                if (row.text) |text| {
+                    allocator.free(text);
+                }
+            }
+            allocator.free(rows);
+        }
+        try t.expectEqual(50, rows.len);
 
-//     if (document.element) |document_element| {
-//         std.debug.print("Test doc ele: {any}", .{document_element.element_type});
-//         var css_parser = try CSSParser.init(std.testing.allocator, document_element);
-//         defer css_parser.node_stack.deinit(std.testing.allocator);
+        const row = rows[0];
+        const element = row.element orelse unreachable;
+        var row_css = try CSSParser.init(allocator, element);
+        defer row_css.deinit();
 
-//         const nodes = try css_parser.parse2("div[class=\"li-row\"]");
-//         defer std.testing.allocator.free(nodes);
-//         try std.testing.expectEqual(50, nodes.len);
+        const href_node = try row_css.parse_single("h3.tit>a") orelse unreachable;
+        defer if (href_node.text) |text| allocator.free(text);
 
-//         var test_nodes = std.ArrayList(TestNovel).init(std.testing.allocator);
-//         defer {
-//             for (test_nodes.items) |item| {
-//                 std.testing.allocator.free(item.id);
-//                 std.testing.allocator.free(item.title);
-//             }
-//             test_nodes.deinit();
-//         }
+        const href_element = href_node.element orelse unreachable;
+        const attr = href_element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "title" }) orelse unreachable;
 
-//         for (nodes) |n| {
-//             var test_node: TestNovel = .{ .id = "", .title = "" };
+        try t.expectEqualStrings("Martial Cultivator", attr);
+    }
+}
 
-//             if (n.element) |e| {
-//                 // std.debug.print("Element: {any}\n", .{e});
-//                 // Scan for title selector
-//                 var local_css_parser = try CSSParser.init(std.testing.allocator, e);
-//                 defer local_css_parser.node_stack.deinit(std.testing.allocator);
-//                 const href_node = try local_css_parser.parse("h3.tit>a");
-//                 if (href_node) |node| {
-//                     if (node.element) |element| {
-//                         if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "title" })) |title| {
-//                             std.debug.print("\tFound title: {s}\n", .{title});
-//                             test_node.title = try std.testing.allocator.dupe(u8, title);
-//                             try test_nodes.append(test_node);
-//                         }
-//                     }
-//                 }
-//             }
-//         }
+test "parse sample chap.html" {
+    const allocator = t.allocator;
 
-//         for (test_nodes.items) |tn| {
-//             std.debug.print("\tID: {s}, Title: {s}\n", .{ tn.id, tn.title });
-//         }
-//     }
-// }
+    const input = @embedFile("tests/chap.html");
+    @setEvalBranchQuota(200000);
+    const decoded_input = &rem.util.utf8DecodeStringComptime(input);
+    // defer allocator.free(decoded_input);
+
+    // Create the DOM in which the parsed Document will be created.
+    var dom = rem.Dom{ .allocator = allocator };
+    defer dom.deinit();
+
+    var parser = try rem.Parser.init(&dom, decoded_input, allocator, .ignore, false);
+    defer parser.deinit();
+
+    // This causes the parser to read the input and produce a Document.
+    try parser.run();
+
+    // `errors` returns the list of parse errors that were encountered while parsing.
+    // Since we know that our input was well-formed HTML, we expect there to be 0 parse errors.
+    const errors = parser.errors();
+    try t.expect(errors.len == 0);
+
+    // We can now print the resulting Document to the console.
+    const document = parser.getDocument();
+    try t.expect(document.element != null);
+
+    if (document.element) |document_element| {
+        var css = try CSSParser.init(allocator, document_element);
+        defer css.deinit();
+
+        const chapter_row = try css.parse_single("span.chapter") orelse unreachable;
+        const text = chapter_row.text orelse unreachable;
+        defer allocator.free(text);
+        try t.expectEqualStrings("Chapter 3157 - 3157: Absolute Shocker", text);
+    }
+}

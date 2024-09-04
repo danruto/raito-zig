@@ -41,5 +41,9 @@ pub fn main() !void {
 }
 
 test "test all" {
+    var leaking_gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const leaking_allocator = leaking_gpa.allocator();
+    try logz.setup(leaking_allocator, .{ .pool_size = 5, .level = .None });
+
     @import("std").testing.refAllDecls(@This());
 }
