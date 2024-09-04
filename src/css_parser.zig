@@ -41,6 +41,41 @@ pub const CSSParser = struct {
         self.node_stack.deinit(self.allocator);
     }
 
+    fn is_match(element: *const rem.dom.Element, selector_node: CSSSelectorNode) bool {
+        var match = element.element_type == selector_node.element_type;
+
+        if (selector_node.id) |id| {
+            if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "id" })) |e_id| {
+                match = match and std.mem.eql(u8, id, e_id);
+            } else {
+                match = false;
+            }
+        }
+
+        if (selector_node.class_name) |cn| {
+            if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "class" })) |e_cn| {
+                match = match and std.mem.eql(u8, cn, e_cn);
+            } else {
+                match = false;
+            }
+        }
+
+        if (selector_node.attribute_name) |name| {
+            if (selector_node.attribute_value) |value| {
+                if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = name })) |e_av| {
+                    match = match and std.mem.eql(u8, value, e_av);
+                } else {
+                    match = false;
+                }
+            } else {
+                // Must have a matching name=value pair
+                match = false;
+            }
+        }
+
+        return match;
+    }
+
     fn traverse(allocator: Allocator, node_stack: *std.ArrayListUnmanaged(NodeData), selector: CSSSelectorNode) ![]NodeData {
         var final_nodes = std.ArrayListUnmanaged(NodeData){};
 
@@ -52,38 +87,7 @@ pub const CSSParser = struct {
                 .cdata => {},
 
                 .element => |element| {
-                    var match = selector.element_type == element.element_type;
-
-                    if (selector.id) |id| {
-                        if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "id" })) |e_id| {
-                            match = match and std.mem.eql(u8, id, e_id);
-                        } else {
-                            match = false;
-                        }
-                    }
-
-                    if (selector.class_name) |cn| {
-                        if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "class" })) |e_cn| {
-                            match = match and std.mem.eql(u8, cn, e_cn);
-                        } else {
-                            match = false;
-                        }
-                    }
-
-                    if (selector.attribute_name) |name| {
-                        if (selector.attribute_value) |value| {
-                            if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = name })) |e_av| {
-                                match = match and std.mem.eql(u8, value, e_av);
-                            } else {
-                                match = false;
-                            }
-                        } else {
-                            // Must have a matching name=value pair
-                            match = false;
-                        }
-                    }
-
-                    if (match) {
+                    if (is_match(element, selector)) {
                         try final_nodes.append(allocator, .{ .node = .{ .element = element }, .depth = item.depth });
                     } else {
                         // Add the children and continue the scan
@@ -107,6 +111,58 @@ pub const CSSParser = struct {
         return try final_nodes.toOwnedSlice(allocator);
     }
 
+    fn process_cdata(sb: *zul.StringBuilder, element: *const rem.Dom.Element, depth: usize) !void {
+        // As we don't require going lower than 1 child, just exit early it we reach it
+        if (depth > 1) {
+            logz
+                .warn()
+                .ctx("css_parser.process_cdata")
+                .int("depth", depth)
+                .string("msg", "depth > 1 for child cdata")
+                .log();
+            return;
+        }
+
+        const num_children = element.children.items.len;
+        var ii: u5 = 0;
+        while (ii < num_children) : (ii += 1) {
+            switch (element.children.items[ii]) {
+                .cdata => |cd| {
+                    switch (cd.interface) {
+                        .text => {
+                            const text = std.zig.fmtEscapes(cd.data.items).data;
+
+                            // Only save texts that start with " " as they seem to be part of the
+                            // chapter and those that are trimmed are ads
+                            if (depth == 0 and std.mem.startsWith(u8, text, " ")) {
+                                try sb.write(text);
+                            } else {
+                                try sb.write(text);
+                            }
+
+                            logz
+                                .debug()
+                                .ctx("css_parser.process_cdata")
+                                .int("num_children", num_children)
+                                .int("ii", ii)
+                                .int("depth", depth)
+                                .string("msg", "processed cdata to get")
+                                .string("text", text)
+                                .string("sb", sb.string())
+                                .log();
+                        },
+
+                        .comment => {},
+                    }
+                },
+
+                .element => |child_element| {
+                    try process_cdata(sb, child_element, depth + 1);
+                },
+            }
+        }
+    }
+
     pub fn parse_many(self: *const CSSParser, selector: []const u8) ![]CSSDomNode {
         // Add all nodes until we find a match, if the selector is only 1 level
         // then we search siblings only
@@ -119,11 +175,11 @@ pub const CSSParser = struct {
         // Parse the selector into something we can use
         var css_selector = try CSSSelector.init(arena_allocator, selector);
         defer css_selector.nodes.deinit(arena_allocator);
+        try css_selector.log();
 
         // Create a local copy of the stack that we are going to traverse
         var node_stack = try self.node_stack.clone(arena_allocator);
         defer node_stack.deinit(arena_allocator);
-
         // Now scan down the tree until we find a match for our first selector
         // then we can start limiting the search to siblings and children as required
 
@@ -145,72 +201,7 @@ pub const CSSParser = struct {
             defer sb.deinit();
 
             // Find matching cdata
-            const num_children = node.node.element.children.items.len;
-            var ii: u5 = 0;
-            while (ii < num_children) : (ii += 1) {
-                switch (node.node.element.children.items[ii]) {
-                    .cdata => |cd| {
-                        switch (cd.interface) {
-                            .text => {
-                                const text = std.zig.fmtEscapes(cd.data.items).data;
-
-                                // Only save texts that start with " " as they seem to be part of the
-                                // chapter and those that are trimmed are ads
-                                if (std.mem.startsWith(u8, text, " ")) {
-                                    try sb.write(text);
-                                }
-
-                                logz
-                                    .debug()
-                                    .ctx("css_parser.parse_many")
-                                    .int("num_children", num_children)
-                                    .int("ii", ii)
-                                    .string("msg", "processed cdata to get")
-                                    .string("text", text)
-                                    .string("sb", sb.string())
-                                    .log();
-                            },
-
-                            .comment => {},
-                        }
-                    },
-
-                    .element => |child_element| {
-                        // Sometimes it'll have HTML components embedded within e.g. <i>that</i>
-                        // so just extract it out, only 1 level deep if it does exist.
-                        if (child_element.children.items.len > 0) {
-                            var jj: u5 = 0;
-                            while (jj < child_element.children.items.len) : (jj += 1) {
-                                switch (child_element.children.items[jj]) {
-                                    .cdata => |child_cd| {
-                                        switch (child_cd.interface) {
-                                            .text => {
-                                                const text = std.zig.fmtEscapes(child_cd.data.items).data;
-
-                                                try sb.write(text);
-
-                                                logz
-                                                    .debug()
-                                                    .ctx("css_parser.parse_many")
-                                                    .int("child_element_num_children", child_element.children.items.len)
-                                                    .int("jj", jj)
-                                                    .string("msg", "processed child cdata to get")
-                                                    .string("text", text)
-                                                    .string("sb", sb.string())
-                                                    .log();
-                                            },
-
-                                            .comment => {},
-                                        }
-                                    },
-
-                                    else => {},
-                                }
-                            }
-                        }
-                    },
-                }
-            }
+            try process_cdata(&sb, node.node.element, 0);
 
             final_node.text = try self.allocator.dupe(u8, sb.string());
 
@@ -220,10 +211,6 @@ pub const CSSParser = struct {
         return try ret.toOwnedSlice(self.allocator);
     }
 
-    // TODO: return owned slice of dom nodes, and not just the first one that matches
-    // Caller owns the memory and is responsible for freeing
-    // TODO: either clean up the cdata part and rename to parse_single
-    // or delete and just use parse2
     pub fn parse_single(self: *const CSSParser, selector: []const u8) !?CSSDomNode {
         // Wrap all allocations in an arena to make it easier to allocate and free
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -233,7 +220,7 @@ pub const CSSParser = struct {
         // Parse the selector into something we can use
         var css_selector = try CSSSelector.init(arena_allocator, selector);
         defer css_selector.nodes.deinit(arena_allocator);
-        try css_selector.print();
+        try css_selector.log();
 
         // Which element in the selector we are up to
         var css_selector_node_index: usize = 0;
@@ -279,49 +266,14 @@ pub const CSSParser = struct {
                     // and it didn't have an element specifier. Top level queries with no
                     // html element is not supported by our parser.
                     if (process_for_selector_node) {
-                        var match = true;
-
-                        if (css_selector_node.id) |id| {
-                            if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "id" })) |e_id| {
-                                match = std.mem.eql(u8, id, e_id);
-                            } else {
-                                match = false;
-                            }
-
-                            logz.debug().ctx("parse_single.process_for_selector_node.id").boolean("match", match).log();
-                        }
-
-                        if (css_selector_node.class_name) |cn| {
-                            if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = "class" })) |e_cn| {
-                                match = match and std.mem.eql(u8, cn, e_cn);
-                            } else {
-                                match = false;
-                            }
-
-                            logz.debug().ctx("parse_single.process_for_selector_node.class_name").boolean("match", match).log();
-                        }
-
-                        if (css_selector_node.attribute_name) |an| {
-                            if (css_selector_node.attribute_value) |av| {
-                                if (element.getAttribute(.{ .prefix = .none, .namespace = .none, .local_name = an })) |e_av| {
-                                    match = match and std.mem.eql(u8, av, e_av);
-                                } else {
-                                    match = false;
-                                }
-                            } else {
-                                match = false;
-                            }
-
-                            logz.debug().ctx("parse_single.process_for_selector_node.attr").boolean("match", match).log();
-                        }
-
-                        if (match) {
+                        if (is_match(element, css_selector_node)) {
                             logz.debug()
                                 .ctx("parse_single.match")
                                 .string("msg", "Match found, saving element")
                                 .string("element type", element.element_type.toLocalName())
                                 .int("css_selector_node_index", css_selector_node_index)
                                 .log();
+
                             // It matched everything we were looking for
                             final_node = .{
                                 .element = element,
@@ -349,23 +301,6 @@ pub const CSSParser = struct {
                             }
                         }
                     }
-
-                    if (css_selector_node_index == css_selector.nodes.items.len) {
-                        logz.debug()
-                            .ctx("parse_single")
-                            .string("msg", "appending cdata for final node")
-                            .log();
-                        var num_children = element.children.items.len;
-                        while (num_children > 0) : (num_children -= 1) {
-                            switch (element.children.items[num_children - 1]) {
-                                .cdata => |c| {
-                                    const node = ConstElementOrCharacterData{ .cdata = c };
-                                    try node_stack.append(arena_allocator, .{ .node = node, .depth = item.depth + 1 });
-                                },
-                                else => {},
-                            }
-                        }
-                    }
                 },
                 // Effectively unreachable, we don't prcoess anything to do with cdata
                 .cdata => {},
@@ -373,36 +308,18 @@ pub const CSSParser = struct {
         }
 
         // If this is the final item in the stack and it is a cdata, save it
-        if (final_node != null and node_stack.items.len > 0) {
+        if (final_node) |final_node_| {
             logz.debug()
                 .ctx("css_parser.parse_single")
                 .string("msg", "processing cdata for final node")
                 .log();
-            while (node_stack.items.len > 0) {
-                const cdata_item = node_stack.pop();
 
-                switch (cdata_item.node) {
-                    .cdata => |cd| {
-                        switch (cd.interface) {
-                            .text => {
-                                // There should only be 1 text node as a child
-                                if (final_node.?.text == null) {
-                                    final_node.?.text = std.zig.fmtEscapes(cd.data.items).data;
-                                    logz.warn().ctx("css_parser.parse_single").string("msg", "processed cdata to get").string("text", final_node.?.text).log();
-                                } else {
-                                    logz.warn().ctx("css_parser.parse_single").string("msg", "found more cdata when we have already saved").fmt("cdata", "{s}", .{cd.data.items}).log();
-                                }
-                            },
+            var sb = zul.StringBuilder.init(arena_allocator);
+            defer sb.deinit();
 
-                            // We do not care about comments
-                            .comment => {},
-                        }
-                    },
+            try process_cdata(&sb, final_node_.element, 0);
 
-                    // We have already processed everything we need from elements
-                    .element => {},
-                }
-            }
+            final_node.text = try self.allocator.dupe(u8, sb.string());
         }
 
         logz.debug().ctx("css_parser.parse_single").string("msg", "returning final_node").log();
@@ -604,7 +521,7 @@ pub const CSSSelector = struct {
         };
     }
 
-    pub fn print(self: *const CSSSelector) !void {
+    pub fn log(self: *const CSSSelector) !void {
         for (self.nodes.items) |node| {
             logz.debug().ctx("css_parser.CSSSelector.print").string("msg", "Printing node.").log();
 
