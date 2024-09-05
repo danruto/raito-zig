@@ -18,6 +18,7 @@ const Context = struct {
     gpa: Allocator,
     arena: Allocator,
     page: *PageContext,
+    pool: *zqlite.Pool,
 
     // Filtered slice of novels
     novels: ?[]Novel = null,
@@ -27,9 +28,9 @@ ctx: Context,
 text: ?[]const u8 = null,
 novels: ?std.ArrayList(Novel) = null,
 
-pub fn create(ctx_: Context, pool: *zqlite.Pool) !TuiHomePage {
+pub fn create(ctx_: Context) !TuiHomePage {
     // Read data from db and render it
-    const novels = try Novel.get_all(pool, ctx_.arena);
+    const novels = try Novel.get_all(ctx_.pool, ctx_.arena);
 
     return .{
         .ctx = .{
@@ -38,6 +39,7 @@ pub fn create(ctx_: Context, pool: *zqlite.Pool) !TuiHomePage {
             .gpa = ctx_.gpa,
             .arena = ctx_.arena,
             .page = ctx_.page,
+            .pool = ctx_.pool,
             .novels = novels,
         },
     };
@@ -46,7 +48,7 @@ pub fn create(ctx_: Context, pool: *zqlite.Pool) !TuiHomePage {
 pub fn destroy(self: *TuiHomePage) void {
     if (self.ctx.novels) |novels| {
         for (novels) |novel| {
-            novel.deinit(self.ctx.arena);
+            novel.destroy(self.ctx.arena);
         }
         self.ctx.arena.free(novels);
     }
@@ -108,6 +110,38 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
 
                     return .consumed;
                 }
+            },
+            'p' => {
+                const list = ctx.tui.findByIdTyped(tuile.List, "home-list") orelse unreachable;
+                if (list.focus_handler.focused) {
+                    const list_item_value = list.items.items[list.selected_index].value;
+                    const idx = @intFromPtr(list_item_value);
+                    const novels = ctx.novels orelse unreachable;
+                    const novel = novels[idx - 1];
+
+                    const provider = Freewebnovel.init(ctx.arena);
+
+                    var number = novel.chapter + 1;
+
+                    while (true) {
+                        logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "prefetching chapter for novel").int("chapter", number).string("novel", novel.id).log();
+                        const chapter = provider.fetch(novel, number) catch break;
+                        chapter.upsert(ctx.pool, ctx.gpa) catch break;
+                        number += 1;
+                        logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "prefetched and saved chapter for novel").int("chapter", number).string("novel", novel.id).log();
+                    }
+
+                    logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "updating novel in db").int("chapter", number).string("novel", novel.id).log();
+                    var n = try novel.clone(ctx.gpa);
+                    defer n.destroy(ctx.gpa);
+                    n.chapter = number;
+                    try n.upsert(ctx.pool);
+                    logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "updated novel in db").int("chapter", number).string("novel", novel.id).log();
+
+                    return .consumed;
+                }
+
+                return .ignored;
             },
 
             else => {},

@@ -65,7 +65,8 @@ pub const Tui = struct {
             .gpa = allocator,
             .arena = arena_allocator,
             .page = &page,
-        }, pool);
+            .pool = pool,
+        });
         defer home.destroy();
         page.home = &home;
 

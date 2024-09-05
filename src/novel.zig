@@ -12,7 +12,7 @@ slug: []const u8,
 chapters: usize,
 chapter: usize,
 
-pub fn deinit(self: *const Self, allocator: Allocator) void {
+pub fn destroy(self: *const Self, allocator: Allocator) void {
     allocator.free(self.id);
     allocator.free(self.title);
     allocator.free(self.slug);

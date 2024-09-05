@@ -216,8 +216,8 @@ const Context = struct {
                 n.chapter = number;
                 try n.upsert(self.pool);
 
-                n.deinit(self.gpa);
-                novel.deinit(self.gpa);
+                n.destroy(self.gpa);
+                novel.destroy(self.gpa);
             }
 
             logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "found a cached chapter").string("novel", chapter.novel_id).int("number", number).log();
@@ -234,8 +234,8 @@ const Context = struct {
                 n.chapter = number;
                 try n.upsert(self.pool);
 
-                n.deinit(self.gpa);
-                novel.deinit(self.gpa);
+                n.destroy(self.gpa);
+                novel.destroy(self.gpa);
             } else {
                 const novel = try provider.get_novel(novel_id);
                 if (self.chapter) |c| c.deinit(self.gpa);
@@ -247,11 +247,11 @@ const Context = struct {
                 n.chapter = number;
                 try n.upsert(self.pool);
 
-                n.deinit(self.gpa);
+                n.destroy(self.gpa);
 
                 logz.debug().ctx("TuiReaderPage.fetch_chapter").string("msg", "upserted novel to db").string("novel", novel.id).int("number", number).log();
 
-                novel.deinit(self.gpa);
+                novel.destroy(self.gpa);
             }
 
             if (self.chapter) |chapter| {

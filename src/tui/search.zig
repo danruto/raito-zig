@@ -28,7 +28,7 @@ text: ?[]const u8 = null,
 pub fn destroy(self: *TuiSearchPage) void {
     if (self.ctx.novels) |data| {
         for (data) |novel| {
-            novel.deinit(self.ctx.gpa);
+            novel.destroy(self.ctx.gpa);
         }
         self.ctx.gpa.free(data);
     }
@@ -50,7 +50,7 @@ fn onSearch(opt_self: ?*TuiSearchPage) void {
             errdefer {
                 if (self.ctx.novels) |novels| {
                     for (novels) |novel| {
-                        novel.deinit(self.ctx.gpa);
+                        novel.destroy(self.ctx.gpa);
                     }
                     self.ctx.gpa.free(novels);
                 }
