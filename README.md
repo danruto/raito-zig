@@ -6,13 +6,16 @@ works pretty well.
 There is no loading state or exposed config yet so there will be 'lag' as it 
 fetches data from the page.
 
+# Demo
+![demo](https://res.cloudinary.com/drolz1vqt/image/upload/v1725534696/raito-zig/zqpygtrslma960fuldaw.gif)
+
 # Install
 
 It has been built with zig 0.13.0 so to install you can do:
 `zig build -Doptimize=ReleaseFast`
 
 and then copy it somewhere in your path e.g.
-`sudo cp zig-out/bin/flow /usr/local/bin`
+`sudo cp zig-out/bin/raito-zig /usr/local/bin`
 
 Or just install it in your home directory:
 `zig build -Doptimize=ReleaseFast --prefix ~/.local`
@@ -39,11 +42,12 @@ These are the current keybinds per `Page`
   [tab]     - Toggle focus between components
 ```
 
-### Reader
+## Reader
 ```
   [j]        - Scroll down by 1 line
   [k]        - Scroll up by 1 line
   [h]        - Go to previous chapter (if > 0)
   [l]        - Go to next chapter (if available)
+  [c]        - Change chapter
   [q]        - Quit the app
 ```
