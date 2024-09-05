@@ -14,12 +14,14 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     try logz.setup(allocator, .{
         .level = .Debug,
+        // TODO: store in ~/.cache/raito-zig/raito.log
         .output = .{ .file = "run.log" },
     });
     defer logz.deinit();
 
     var data_pool = zqlite.Pool.init(allocator, .{
         .size = 20,
+        // TODO: store in ~/.cache/raito-zig/raito.db
         .path = "raito.db",
         .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode,
     }) catch |err| {

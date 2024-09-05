@@ -86,6 +86,13 @@ pub fn upsert(self: *const Self, pool: *zqlite.Pool) !void {
     try conn.exec("INSERT OR REPLACE INTO novel (id, slug, title, chapter, max_chapters) VALUES (?1, ?2, ?3, ?4, ?5)", .{ self.id, self.slug, self.title, self.chapter, self.chapters });
 }
 
+pub fn delete(self: *const Self, pool: *zqlite.Pool) !void {
+    const conn = pool.acquire();
+    defer pool.release(conn);
+
+    try conn.exec("DELETE FROM novel WHERE id = $1", .{self.id});
+}
+
 pub fn clone(self: *const Self, allocator: Allocator) !Self {
     return .{
         .id = try allocator.dupe(u8, self.id),

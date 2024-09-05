@@ -60,6 +60,7 @@ fn onInputChanged(opt_self: ?*TuiHomePage, value: []const u8) void {
     // Autosearch? If it's filtering on local state its fine
 }
 
+// TODO:
 fn onSearch(opt_self: ?*TuiHomePage) void {
     const self = opt_self.?;
     _ = self;
@@ -134,7 +135,7 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                     logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "updating novel in db").int("chapter", number).string("novel", novel.id).log();
                     var n = try novel.clone(ctx.gpa);
                     defer n.destroy(ctx.gpa);
-                    n.chapter = number;
+                    n.chapters = number;
                     try n.upsert(ctx.pool);
                     logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "updated novel in db").int("chapter", number).string("novel", novel.id).log();
 
@@ -143,18 +144,43 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
 
                 return .ignored;
             },
+            'd' => {
+                // delete novel and all related chapters from db
+                const list = ctx.tui.findByIdTyped(tuile.List, "home-list") orelse unreachable;
+                if (list.focus_handler.focused) {
+                    const list_item_value = list.items.items[list.selected_index].value;
+                    const idx = @intFromPtr(list_item_value);
+                    const novels = ctx.novels orelse unreachable;
+                    const novel = novels[idx - 1];
+
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "deleting chapters for novel").string("novel", novel.id).log();
+                    try Chapter.delete(novel.id, ctx.pool);
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "deleting novel").string("novel", novel.id).log();
+                    try novel.delete(ctx.pool);
+
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "freeing novels").string("novel", novel.id).log();
+                    // Refresh list
+                    for (novels) |n| {
+                        n.destroy(ctx.arena);
+                    }
+                    ctx.arena.free(novels);
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "setting up new db novels").log();
+                    ctx.novels = try Novel.get_all(ctx.pool, ctx.arena);
+
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "resetting home list").log();
+                    const home_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "home-page") orelse unreachable;
+                    const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse unreachable;
+                    _ = try page_container.removeChild(home_page_widget.widget());
+                    const home_page = ctx.page.home orelse unreachable;
+                    try page_container.addChild(try home_page.render());
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "reset home list").log();
+                }
+            },
 
             else => {},
         },
         .key => |key| switch (key) {
             .Enter => {
-                const btn = ctx.tui.findByIdTyped(tuile.Button, "home-search-button") orelse unreachable;
-                if (btn.focus_handler.focused) {
-                    if (btn.on_press) |on_press| {
-                        on_press.call();
-                    }
-                }
-
                 const list = ctx.tui.findByIdTyped(tuile.List, "home-list") orelse unreachable;
                 if (list.focus_handler.focused) {
                     const focused_item = list.items.items[list.selected_index];
@@ -248,14 +274,6 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
                         .layout = .{ .flex = 1 },
                         .on_value_changed = .{
                             .cb = @ptrCast(&onInputChanged),
-                            .payload = self,
-                        },
-                    }),
-                    tuile.button(.{
-                        .id = "home-search-button",
-                        .text = "Search",
-                        .on_press = .{
-                            .cb = @ptrCast(&onSearch),
                             .payload = self,
                         },
                     }),
