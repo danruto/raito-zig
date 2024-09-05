@@ -73,3 +73,10 @@ pub fn upsert(self: *const Self, pool: *zqlite.Pool, allocator: Allocator) !void
 
     try conn.exec("INSERT OR REPLACE INTO chapter (number, title, raw_html, lines, status, novel_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", .{ self.number, self.title, "", lines, "Available", self.novel_id });
 }
+
+pub fn delete(novel_id: []const u8, pool: *zqlite.Pool) !void {
+    const conn = pool.acquire();
+    defer pool.release(conn);
+
+    try conn.exec("DELETE FROM chapter WHERE novel_id = $1", .{novel_id});
+}

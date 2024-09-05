@@ -144,6 +144,38 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
 
                 return .ignored;
             },
+            'd' => {
+                // delete novel and all related chapters from db
+                const list = ctx.tui.findByIdTyped(tuile.List, "home-list") orelse unreachable;
+                if (list.focus_handler.focused) {
+                    const list_item_value = list.items.items[list.selected_index].value;
+                    const idx = @intFromPtr(list_item_value);
+                    const novels = ctx.novels orelse unreachable;
+                    const novel = novels[idx - 1];
+
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "deleting chapters for novel").string("novel", novel.id).log();
+                    try Chapter.delete(novel.id, ctx.pool);
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "deleting novel").string("novel", novel.id).log();
+                    try novel.delete(ctx.pool);
+
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "freeing novels").string("novel", novel.id).log();
+                    // Refresh list
+                    for (novels) |n| {
+                        n.destroy(ctx.arena);
+                    }
+                    ctx.arena.free(novels);
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "setting up new db novels").log();
+                    ctx.novels = try Novel.get_all(ctx.pool, ctx.arena);
+
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "resetting home list").log();
+                    const home_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "home-page") orelse unreachable;
+                    const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse unreachable;
+                    _ = try page_container.removeChild(home_page_widget.widget());
+                    const home_page = ctx.page.home orelse unreachable;
+                    try page_container.addChild(try home_page.render());
+                    logz.debug().ctx("tui.home.onKeyHandler.d").string("msg", "reset home list").log();
+                }
+            },
 
             else => {},
         },
