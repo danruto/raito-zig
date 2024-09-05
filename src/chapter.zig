@@ -1,5 +1,6 @@
 const std = @import("std");
 const zqlite = @import("zqlite");
+const logz = @import("logz");
 
 const Allocator = std.mem.Allocator;
 
@@ -63,12 +64,12 @@ pub fn get(pool: *zqlite.Pool, allocator: Allocator, novel_id: []const u8, numbe
     return null;
 }
 
-pub fn upsert(self: *const Self, pool: *zqlite.Pool, allocator: Allocator, novel_id: []const u8) !void {
+pub fn upsert(self: *const Self, pool: *zqlite.Pool, allocator: Allocator) !void {
     const conn = pool.acquire();
     defer pool.release(conn);
 
     const lines = try std.mem.join(allocator, "\n", self.lines.items[0..]);
     defer allocator.free(lines);
 
-    try conn.exec("INSERT OR REPLACE INTO chapter (number, title, raw_html, lines, status, novel_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", .{ self.number, self.title, "", lines, "Available", novel_id });
+    try conn.exec("INSERT OR REPLACE INTO chapter (number, title, raw_html, lines, status, novel_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", .{ self.number, self.title, "", lines, "Available", self.novel_id });
 }

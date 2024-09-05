@@ -33,9 +33,18 @@ pub fn main() !void {
         try migrations.migrateData(conn, 0);
     }
 
-    try tui.Tui.run(&data_pool);
+    tui.Tui.run(&data_pool) catch |err| {
+        logz.fatal().ctx("app.tui.run").err(err).log();
+        std.debug.dumpCurrentStackTrace(null);
+        _ = @errorReturnTrace();
+        return err;
+    };
 }
 
 test "test all" {
+    var leaking_gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const leaking_allocator = leaking_gpa.allocator();
+    try logz.setup(leaking_allocator, .{ .pool_size = 5, .level = .None });
+
     @import("std").testing.refAllDecls(@This());
 }
