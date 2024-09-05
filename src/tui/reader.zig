@@ -22,7 +22,6 @@ fn generateMultilineSpan(allocator: Allocator, lines: [][]const u8, max_line_len
     var span = tuile.Span.init(allocator);
 
     for (lines) |line| {
-        // TODO: If the line is too long push multiple spans?
         // Split line into multple parts if it is too long
         const adjusted_max = max_line_length - 20;
         if (line.len > adjusted_max) {
