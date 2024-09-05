@@ -60,6 +60,7 @@ fn onInputChanged(opt_self: ?*TuiHomePage, value: []const u8) void {
     // Autosearch? If it's filtering on local state its fine
 }
 
+// TODO:
 fn onSearch(opt_self: ?*TuiHomePage) void {
     const self = opt_self.?;
     _ = self;
@@ -134,7 +135,7 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                     logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "updating novel in db").int("chapter", number).string("novel", novel.id).log();
                     var n = try novel.clone(ctx.gpa);
                     defer n.destroy(ctx.gpa);
-                    n.chapter = number;
+                    n.chapters = number;
                     try n.upsert(ctx.pool);
                     logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "updated novel in db").int("chapter", number).string("novel", novel.id).log();
 
@@ -148,13 +149,6 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
         },
         .key => |key| switch (key) {
             .Enter => {
-                const btn = ctx.tui.findByIdTyped(tuile.Button, "home-search-button") orelse unreachable;
-                if (btn.focus_handler.focused) {
-                    if (btn.on_press) |on_press| {
-                        on_press.call();
-                    }
-                }
-
                 const list = ctx.tui.findByIdTyped(tuile.List, "home-list") orelse unreachable;
                 if (list.focus_handler.focused) {
                     const focused_item = list.items.items[list.selected_index];
@@ -248,14 +242,6 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
                         .layout = .{ .flex = 1 },
                         .on_value_changed = .{
                             .cb = @ptrCast(&onInputChanged),
-                            .payload = self,
-                        },
-                    }),
-                    tuile.button(.{
-                        .id = "home-search-button",
-                        .text = "Search",
-                        .on_press = .{
-                            .cb = @ptrCast(&onSearch),
                             .payload = self,
                         },
                     }),

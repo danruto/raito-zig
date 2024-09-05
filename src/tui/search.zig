@@ -20,10 +20,10 @@ const Context = struct {
     page: *PageContext,
 
     novels: ?[]Novel = null,
+    text: ?[]const u8 = null,
 };
 
 ctx: Context,
-text: ?[]const u8 = null,
 
 pub fn destroy(self: *TuiSearchPage) void {
     if (self.ctx.novels) |data| {
@@ -36,23 +36,22 @@ pub fn destroy(self: *TuiSearchPage) void {
 
 fn onInputChanged(opt_self: ?*TuiSearchPage, value: []const u8) void {
     const self = opt_self.?;
-    self.text = value;
+    self.ctx.text = value;
 }
 
-fn onSearch(opt_self: ?*TuiSearchPage) void {
-    const self = opt_self.?;
-    if (self.text) |text| {
+fn onSearch(ctx: *Context) void {
+    if (ctx.text) |text| {
         if (text.len > 0) {
-            var list = self.ctx.tui.findByIdTyped(tuile.List, "search-list") orelse unreachable;
+            var list = ctx.tui.findByIdTyped(tuile.List, "search-list") orelse unreachable;
 
-            const provider = Freewebnovel.init(self.ctx.gpa);
-            self.ctx.novels = provider.search(text) catch unreachable;
+            const provider = Freewebnovel.init(ctx.gpa);
+            ctx.novels = provider.search(text) catch unreachable;
             errdefer {
-                if (self.ctx.novels) |novels| {
+                if (ctx.novels) |novels| {
                     for (novels) |novel| {
-                        novel.destroy(self.ctx.gpa);
+                        novel.destroy(ctx.gpa);
                     }
-                    self.ctx.gpa.free(novels);
+                    ctx.gpa.free(novels);
                 }
             }
             // self.ctx.novels = provider.sample() catch unreachable;
@@ -62,12 +61,12 @@ fn onSearch(opt_self: ?*TuiSearchPage) void {
             list.destroy();
 
             var items = std.ArrayListUnmanaged(tuile.List.Item){};
-            defer items.deinit(self.ctx.arena);
+            defer items.deinit(ctx.arena);
 
             logz.debug().ctx("tui.search.onSearch").string("msg", "Appending novels").log();
-            for (self.ctx.novels.?, 0..) |novel, idx| {
-                items.append(self.ctx.arena, .{
-                    .label = tuile.label(.{ .text = self.ctx.arena.dupe(u8, novel.title) catch unreachable }) catch unreachable,
+            for (ctx.novels.?, 0..) |novel, idx| {
+                items.append(ctx.arena, .{
+                    .label = tuile.label(.{ .text = ctx.arena.dupe(u8, novel.title) catch unreachable }) catch unreachable,
                     // Go up an index as `if (focused_item.value)` evaluates a 0 int as false
                     .value = @ptrFromInt(idx + 1),
                 }) catch unreachable;
@@ -75,7 +74,7 @@ fn onSearch(opt_self: ?*TuiSearchPage) void {
             logz.debug().ctx("tui.search.onSearch").string("msg", "Appended novels").log();
 
             if (items.items.len == 0) {
-                items.append(self.ctx.arena, .{ .label = tuile.label(.{ .text = "Failed to search" }) catch unreachable, .value = null }) catch unreachable;
+                items.append(ctx.arena, .{ .label = tuile.label(.{ .text = "Failed to search" }) catch unreachable, .value = null }) catch unreachable;
             }
 
             logz.debug().ctx("tui.search.onSearch").string("msg", "Recreating list").log();
@@ -89,18 +88,13 @@ fn onSearch(opt_self: ?*TuiSearchPage) void {
             logz.debug().ctx("tui.search.onSearch").string("msg", "Recreated list").log();
 
             // Toggle focus to list only when there were results
-            if (self.ctx.novels) |novels| {
+            if (ctx.novels) |novels| {
                 if (novels.len > 0) {
-                    const input = self.ctx.tui.findByIdTyped(tuile.Input, "search-input") orelse unreachable;
-                    const btn = self.ctx.tui.findByIdTyped(tuile.Button, "search-search-button") orelse unreachable;
+                    const input = ctx.tui.findByIdTyped(tuile.Input, "search-input") orelse unreachable;
 
                     if (input.focus_handler.focused) {
                         input.focus_handler.focused = false;
                         _ = input.handleEvent(.focus_out) catch unreachable;
-                    }
-                    if (btn.focus_handler.focused) {
-                        btn.focus_handler.focused = false;
-                        _ = btn.handleEvent(.focus_out) catch unreachable;
                     }
                     list.focus_handler.focused = true;
                     _ = list.handleEvent(.{ .focus_in = .front }) catch unreachable;
@@ -182,8 +176,14 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
 
                         logz.debug().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "enabled reader page").log();
 
-                        const search_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "search-page") orelse unreachable;
-                        const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse unreachable;
+                        const search_page_widget = ctx.tui.findByIdTyped(tuile.StackLayout, "search-page") orelse {
+                            logz.err().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "search-page widget unreachable").log();
+                            unreachable;
+                        };
+                        const page_container = ctx.tui.findByIdTyped(tuile.StackLayout, "page-container") orelse {
+                            logz.err().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "page-container widget unreachable").log();
+                            unreachable;
+                        };
                         _ = try page_container.removeChild(search_page_widget.widget());
                         try page_container.addChild(try reader_page.render());
                     }
@@ -191,19 +191,12 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                     logz.debug().ctx("TuiSearchPage.onKeyHandler.enter").string("msg", "search-list was not focused").log();
                 }
 
-                const btn = ctx.tui.findByIdTyped(tuile.Button, "search-search-button") orelse unreachable;
-                if (btn.focus_handler.focused) {
-                    if (btn.on_press) |on_press| {
-                        on_press.call();
+                if (ctx.tui.findByIdTyped(tuile.Input, "search-input")) |input| {
+                    if (input.focus_handler.focused) {
+                        onSearch(ctx);
                     }
                 }
 
-                const input = ctx.tui.findByIdTyped(tuile.Input, "search-input") orelse unreachable;
-                if (input.focus_handler.focused) {
-                    if (btn.on_press) |on_press| {
-                        on_press.call();
-                    }
-                }
                 return .consumed;
             },
             else => {},
@@ -236,16 +229,9 @@ pub fn render(self: *TuiSearchPage) !*tuile.StackLayout {
                     tuile.input(.{
                         .id = "search-input",
                         .layout = .{ .flex = 1 },
+                        .placeholder = "Search for a novel. [Enter] to search.",
                         .on_value_changed = .{
                             .cb = @ptrCast(&onInputChanged),
-                            .payload = self,
-                        },
-                    }),
-                    tuile.button(.{
-                        .id = "search-search-button",
-                        .text = "Search",
-                        .on_press = .{
-                            .cb = @ptrCast(&onSearch),
                             .payload = self,
                         },
                     }),
