@@ -28,15 +28,15 @@
             .hash = "1220da547f973ec198c5a56c6a0c638c915d5d756209f66ef0f281948d4ac1bf6725",
         },
         .zul = .{
-            .url = "https://github.com/karlseguin/zul/archive/master.tar.gz",
+            .url = "git+https://github.com/karlseguin/zul#ae0c27350c0db6b460f22cba30b6b0c4a02d1ffd",
             .hash = "1220457e2c8867f6734520d9b335f01e1d851d6fe7adaa7f6f0756158acaf6c5e87f",
         },
         .zqlite = .{
-            .url = "git+https://github.com/karlseguin/zqlite.zig#master",
+            .url = "git+https://github.com/karlseguin/zqlite.zig#997d3ac5156bcc9990168ad92caec6ed0cd5cbd8",
             .hash = "1220321cdb273d1f6e90b04fc747cae49dac1ae3d7db4125f590d2c0df5c4aadcc88",
         },
         .logz = .{
-            .url = "https://github.com/karlseguin/log.zig/archive/master.tar.gz",
+            .url = "git+https://github.com/karlseguin/log.zig#0a8d45fe70f15615ee4251b0a84afa243f728d21",
             .hash = "1220a267bbb2165749fd6574cd2729aa70dd3cbbf74c8825b97334b22d9b2385ec3f",
         },
         .tuile = .{
