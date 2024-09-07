@@ -11,7 +11,7 @@ title: []const u8,
 number: usize,
 lines: std.ArrayList([]const u8),
 
-pub fn deinit(self: *const Self, allocator: Allocator) void {
+pub fn destroy(self: *const Self, allocator: Allocator) void {
     allocator.free(self.novel_id);
     allocator.free(self.title);
     for (self.lines.items) |line| {

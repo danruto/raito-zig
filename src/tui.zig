@@ -88,6 +88,7 @@ pub const Tui = struct {
             .gpa = allocator,
             .arena = arena_allocator,
             .pool = pool,
+            .lines = .{},
         });
         defer reader.destroy();
         page.reader = &reader;

@@ -112,16 +112,18 @@ pub const CSSParser = struct {
     }
 
     fn process_cdata(sb: *zul.StringBuilder, element: *const rem.Dom.Element, depth: usize) !void {
+
         // As we don't require going lower than 1 child, just exit early it we reach it
         if (depth > 1) {
-            logz
-                .warn()
-                .ctx("css_parser.process_cdata")
-                .int("depth", depth)
-                .string("msg", "depth > 1 for child cdata")
-                .log();
             return;
         }
+
+        logz
+            .warn()
+            .ctx("css_parser.process_cdata")
+            .int("depth", depth)
+            .string("msg", "process_cdata at depth")
+            .log();
 
         const num_children = element.children.items.len;
         var ii: u5 = 0;
@@ -134,11 +136,13 @@ pub const CSSParser = struct {
 
                             // Only save texts that start with " " as they seem to be part of the
                             // chapter and those that are trimmed are ads
-                            if (depth == 0 and std.mem.startsWith(u8, text, " ")) {
-                                try sb.write(text);
-                            } else {
-                                try sb.write(text);
-                            }
+                            // if (depth == 0 and std.mem.startsWith(u8, text, " ")) {
+                            //     try sb.write(text);
+                            // } else if (depth > 0) {
+                            //     try sb.write(text);
+                            // }
+
+                            try sb.write(text);
 
                             logz
                                 .debug()
@@ -205,6 +209,7 @@ pub const CSSParser = struct {
 
             final_node.text = try self.allocator.dupe(u8, sb.string());
 
+            logz.debug().ctx("css_parser.parse_many").string("msg", "found text for final node").string("text", final_node.text.?).log();
             try ret.append(self.allocator, final_node);
         }
 

@@ -77,6 +77,7 @@ fn make_get_req(self: *const Freewebnovel, url: []const u8) ![]const u8 {
 
     const sb = try res.allocBody(self.allocator, .{});
     defer sb.deinit();
+
     return sb.copy(self.allocator);
 }
 
@@ -223,7 +224,7 @@ pub fn search(self: *const Freewebnovel, term: []const u8) ![]Novel {
                         _ = std.mem.replace(u8, text, "Chapters", "", output);
 
                         // std.mem.replaceScalar(u8, text, "Chapters", "");
-                        novel.chapters = try std.fmt.parseUnsigned(usize, std.mem.trim(u8, output, " "), 10);
+                        novel.chapters = std.fmt.parseUnsigned(usize, std.mem.trim(u8, output, " "), 10) catch 0;
                         // Start at the first chapter
                         novel.chapter = 1;
 
@@ -253,6 +254,10 @@ pub fn fetch(self: *const Freewebnovel, novel: Novel, chapter_number: usize) !Ch
     defer self.allocator.free(url);
 
     const s = try self.make_get_req(url);
+    logz.debug().ctx("fwn.fetch.make_get_req").string("url", url)
+        .fmt("resp_fmt", "{s}", .{s})
+        .string("resp", s)
+        .log();
     defer self.allocator.free(s);
 
     // Create the DOM in which the parsed Document will be created.
@@ -295,6 +300,7 @@ pub fn fetch(self: *const Freewebnovel, novel: Novel, chapter_number: usize) !Ch
 
         if (std.mem.eql(u8, chapter.title, "")) {
             // Latest chapter reached as we didn't find a title
+            logz.err().ctx("fwn.fetch").string("msg", "Chapter did not have title").log();
             return error.LatestChapterReached;
         }
 
@@ -314,9 +320,12 @@ pub fn fetch(self: *const Freewebnovel, novel: Novel, chapter_number: usize) !Ch
             }
         }
 
+        logz.debug().ctx("fwn.fetch").string("msg", "finished parsing the chapter lines").fmt("chapter", "{any}", .{chapter}).log();
+
         return chapter;
     }
 
+    logz.err().ctx("fwn.fetch").string("msg", "failed to fetch chapter").log();
     return error.FailedToFetchChapter;
 }
 
