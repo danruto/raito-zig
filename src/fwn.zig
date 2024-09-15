@@ -300,7 +300,7 @@ pub fn fetch(self: *const Freewebnovel, novel: Novel, chapter_number: usize) !Ch
 
         if (std.mem.eql(u8, chapter.title, "")) {
             // Latest chapter reached as we didn't find a title
-            logz.err().ctx("fwn.fetch").string("msg", "Chapter did not have title").log();
+            logz.err().ctx("fwn.fetch").string("msg", "Chapter did not have title, so this is the final chapter").log();
             return error.LatestChapterReached;
         }
 
@@ -369,11 +369,24 @@ pub fn get_novel(self: *const Freewebnovel, slug: []const u8) !Novel {
         var css = try css_parser.CSSParser.init(self.allocator, document_element);
         defer css.deinit();
 
-        const row = try css.parse_single("h1.tit");
-        if (row) |row_title| {
+        if (try css.parse_single("h1.tit")) |row_title| {
             if (row_title.text) |text| {
                 defer self.allocator.free(text);
                 novel.title = try self.allocator.dupe(u8, text);
+            }
+        }
+
+        if (try css.parse_single("ul.ul-list5>li>a")) |row_chapters| {
+            // Grab only the chapter text from it
+            if (row_chapters.text) |text| {
+                const delims = "Chapters , - ";
+                var it = std.mem.splitAny(u8, text, delims);
+                // Skip the Chapters field
+                _ = it.first();
+
+                if (it.next()) |number| {
+                    novel.chapters = std.fmt.parseUnsigned(usize, std.mem.trim(u8, number, " "), 10) catch 0;
+                }
             }
         }
 
