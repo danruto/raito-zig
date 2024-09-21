@@ -10,7 +10,7 @@ pub fn run(conn: Conn) !void {
         \\   slug TEXT NOT NULL,
         \\   title TEXT NOT NULL,
         \\   chapter INTEGER,
-        \\   max_chapters INTEGER                
+        \\   max_chapters INTEGER
         \\   created INTEGER NOT NULL default(unixepoch()),
         \\   updated INTEGER NOT NULL default(unixepoch())
         \\ );

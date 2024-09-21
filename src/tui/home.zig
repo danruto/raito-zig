@@ -71,6 +71,12 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
 
     if (!ctx.enabled) return .ignored;
 
+    // Clear out home page home-prefetch-progress always on a new button Press
+    // since the UI can only update once the handler has been completed
+    if (ctx.tui.findByIdTyped(tuile.Label, "home-prefetch-progress")) |label| {
+        try label.setText("");
+    }
+
     switch (event) {
         .char => |char| switch (char) {
             's' => {
@@ -138,6 +144,10 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
                     n.chapters = number;
                     try n.upsert(ctx.pool);
                     logz.debug().ctx("tui.home.onKeyHandler.p").string("msg", "updated novel in db").int("chapter", number).string("novel", novel.id).log();
+
+                    if (ctx.tui.findByIdTyped(tuile.Label, "home-prefetch-progress")) |label| {
+                        try label.setText(try std.fmt.allocPrint(ctx.arena, "Downloaded {s}", .{novel.title}));
+                    }
 
                     return .consumed;
                 }
@@ -237,7 +247,7 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
         if (novels.len > 0) {
             for (novels, 0..) |novel, idx| {
                 try novels_list.append(.{
-                    .label = try tuile.label(.{ .text = try self.ctx.arena.dupe(u8, novel.title) }),
+                    .label = try tuile.label(.{ .text = try std.fmt.allocPrint(self.ctx.arena, "{s} - {d} / {s}", .{ novel.title, novel.chapter, if (novel.chapters > 1) try std.fmt.allocPrint(self.ctx.arena, "{d} downloaded", .{novel.chapters}) else "?" }) }),
                     .value = @ptrFromInt(idx + 1),
                 });
             }
@@ -266,19 +276,20 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
                 novels_list.items[0..],
             ),
             tuile.spacer(.{ .layout = .{ .flex = 1 } }),
-            tuile.horizontal(
-                .{},
-                .{
-                    tuile.input(.{
-                        .id = "home-input",
-                        .layout = .{ .flex = 1 },
-                        .on_value_changed = .{
-                            .cb = @ptrCast(&onInputChanged),
-                            .payload = self,
-                        },
-                    }),
-                },
-            ),
+            // tuile.horizontal(
+            //     .{},
+            //     .{
+            //         tuile.input(.{
+            //             .id = "home-input",
+            //             .layout = .{ .flex = 1 },
+            //             .on_value_changed = .{
+            //                 .cb = @ptrCast(&onInputChanged),
+            //                 .payload = self,
+            //             },
+            //         }),
+            //     },
+            // ),
+            tuile.label(.{ .id = "home-prefetch-progress", .layout = .{ .max_height = 14 }, .text = "" }),
         },
     );
 }

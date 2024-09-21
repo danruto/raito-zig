@@ -158,7 +158,8 @@ const Context = struct {
 
     fn scroll(self: *Context, size: isize) !void {
         const new_offset: isize = self.offset + size;
-        if (new_offset >= 0 and new_offset < self.lines.items.len) {
+        // Give it 4 lines of buffer at the end
+        if (new_offset >= 0 and new_offset < self.lines.items.len - 4) {
             self.offset = new_offset;
             try self.reset_span();
         }
