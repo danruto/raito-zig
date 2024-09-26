@@ -42,6 +42,16 @@ const Context = struct {
 
     text: ?[]const u8 = null,
 
+    fn destroy(self: *Context) void {
+        if (self.novel_id) |nid| self.gpa.free(nid);
+        if (self.title) |title| self.gpa.free(title);
+
+        for (self.lines.items) |line| self.gpa.free(line);
+        self.lines.deinit(self.gpa);
+
+        if (self.span) |_| self.span.?.deinit();
+    }
+
     fn generateMultilineSpan(self: *Context) !tuile.Span {
         var span = tuile.Span.init(self.arena);
 
@@ -248,7 +258,11 @@ const Context = struct {
             }
 
             if (novel) |novel_| {
-                const chapter = try provider.fetch(novel_, number);
+                const chapter = provider.fetch(novel_, number) catch {
+                    novel_.destroy(self.gpa);
+
+                    return;
+                };
                 defer chapter.destroy(self.gpa);
                 if (self.title) |title| self.gpa.free(title);
                 self.title = try self.gpa.dupe(u8, chapter.title);
@@ -308,6 +322,7 @@ pub fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.E
                 return .ignored;
             },
             'q' => {
+                // defer ctx.destroy();
                 ctx.tui.stop();
                 return .consumed;
             },
@@ -369,11 +384,7 @@ pub fn create(ctx_: Context) !TuiReaderPage {
 }
 
 pub fn destroy(self: *TuiReaderPage) void {
-    if (self.ctx.title) |title| self.ctx.gpa.free(title);
-    if (self.ctx.novel_id) |novel_id| self.ctx.gpa.free(novel_id);
-    if (self.ctx.span) |_| self.ctx.span.?.deinit();
-    for (self.ctx.lines.items) |line| self.ctx.gpa.free(line);
-    self.ctx.lines.deinit(self.ctx.gpa);
+    self.ctx.destroy();
 }
 
 pub fn render(self: *TuiReaderPage) !*tuile.StackLayout {
