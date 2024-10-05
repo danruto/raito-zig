@@ -1,0 +1,24 @@
+# Run manually
+on:
+    workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{matrix.os}}
+    name: Build and Release
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+      - run: zig build -Doptimize=ReleaseFast
+      - run: mv zig-out/bin/raito-zig raito-zig-${{matrix.os}}
+      - name: Upload the build
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          artifacts: raito-zig-${{matrix.os}}
+          tag: nightly
