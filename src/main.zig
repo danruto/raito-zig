@@ -1,6 +1,7 @@
 const std = @import("std");
 const logz = @import("logz");
 const zqlite = @import("zqlite");
+const xata = @import("./api/xata.zig");
 
 const tui = @import("tui.zig");
 
@@ -33,6 +34,25 @@ pub fn main() !void {
         const conn = data_pool.acquire();
         defer data_pool.release(conn);
         try migrations.migrateData(conn, 0);
+    }
+
+    const sync_db = try xata.init(allocator);
+    defer sync_db.destroy();
+    // try sync_db.migrate();
+
+    // Sync the remote and local states
+    {
+        const conn = data_pool.acquire();
+        defer data_pool.release(conn);
+
+        if (try conn.row("SELECT timestamp FROM sync", .{})) |row| {
+            const ts = row.int(0);
+            sync_db.sync(ts, &conn) catch {
+                // On error, it probably means we haven't got any data on the server db,
+                // so force an upload
+                try sync_db.upload(&conn);
+            };
+        }
     }
 
     tui.Tui.run(&data_pool) catch |err| {

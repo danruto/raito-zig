@@ -49,10 +49,7 @@ pub fn get(pool: *zqlite.Pool, allocator: Allocator, id: []const u8) !?Self {
     return null;
 }
 
-pub fn get_all(pool: *zqlite.Pool, allocator: Allocator) ![]Self {
-    const conn = pool.acquire();
-    defer pool.release(conn);
-
+pub fn get_all_impl(conn: *const zqlite.Conn, allocator: Allocator) ![]Self {
     var rows = try conn.rows("SELECT id, slug, title, chapter, max_chapters FROM novel", .{});
     defer rows.deinit();
 
@@ -77,13 +74,24 @@ pub fn get_all(pool: *zqlite.Pool, allocator: Allocator) ![]Self {
     return novels.toOwnedSlice();
 }
 
+pub fn get_all(pool: *zqlite.Pool, allocator: Allocator) ![]Self {
+    const conn = pool.acquire();
+    defer pool.release(conn);
+
+    return get_all_impl(&conn, allocator);
+}
+
+pub fn upsert_impl(self: *const Self, conn: *const zqlite.Conn) !void {
+    logz.debug().ctx("Novel.upsert").fmt("novel", "{any}", .{self}).log();
+
+    try conn.exec("INSERT OR REPLACE INTO novel (id, slug, title, chapter, max_chapters) VALUES (?1, ?2, ?3, ?4, ?5)", .{ self.id, self.slug, self.title, self.chapter, self.chapters });
+}
+
 pub fn upsert(self: *const Self, pool: *zqlite.Pool) !void {
     const conn = pool.acquire();
     defer pool.release(conn);
 
-    logz.debug().ctx("Novel.upsert").fmt("novel", "{any}", .{self}).log();
-
-    try conn.exec("INSERT OR REPLACE INTO novel (id, slug, title, chapter, max_chapters) VALUES (?1, ?2, ?3, ?4, ?5)", .{ self.id, self.slug, self.title, self.chapter, self.chapters });
+    try self.upsert_impl(&conn);
 }
 
 pub fn delete(self: *const Self, pool: *zqlite.Pool) !void {
