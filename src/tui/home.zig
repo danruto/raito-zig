@@ -71,12 +71,6 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
 
     if (!ctx.enabled) return .ignored;
 
-    // Clear out home page home-prefetch-progress always on a new button Press
-    // since the UI can only update once the handler has been completed
-    if (ctx.tui.findByIdTyped(tuile.Label, "home-prefetch-progress")) |label| {
-        try label.setText("");
-    }
-
     switch (event) {
         .char => |char| switch (char) {
             's' => {
@@ -247,7 +241,8 @@ pub fn render(self: *TuiHomePage) !*tuile.StackLayout {
         if (novels.len > 0) {
             for (novels, 0..) |novel, idx| {
                 try novels_list.append(.{
-                    .label = try tuile.label(.{ .text = try std.fmt.allocPrint(self.ctx.arena, "{s} - {d} / {s}", .{ novel.title, novel.chapter, if (novel.chapters > 1) try std.fmt.allocPrint(self.ctx.arena, "{d} downloaded", .{novel.chapters}) else "?" }) }),
+                    // .label = try tuile.label(.{ .text = try std.fmt.allocPrint(self.ctx.arena, "{s} - {d} / {s}", .{ novel.title, novel.chapter, if (novel.chapters > 1) try std.fmt.allocPrint(self.ctx.arena, "{d} downloaded", .{novel.chapters}) else "?" }) }),
+                    .label = try tuile.label(.{ .text = try std.fmt.allocPrint(self.ctx.arena, "{s} - {d}", .{ novel.title, novel.chapter }) }),
                     .value = @ptrFromInt(idx + 1),
                 });
             }

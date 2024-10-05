@@ -7,3 +7,4 @@ raito.db
 *Zone.Identifier
 *-shm
 *-wal
+.env
