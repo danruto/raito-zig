@@ -86,9 +86,10 @@ allocator: Allocator,
 base_url: []const u8,
 api_key: []const u8,
 
-pub fn init(allocator: Allocator) !Self {
-    const base_url = try std.process.getEnvVarOwned(allocator, "API_URL");
-    const api_key = try std.process.getEnvVarOwned(allocator, "API_KEY");
+pub fn init(allocator: Allocator) ?Self {
+    const base_url = std.process.getEnvVarOwned(allocator, "API_URL") catch return null;
+    const api_key = std.process.getEnvVarOwned(allocator, "API_KEY") catch return null;
+
     return .{
         .allocator = allocator,
         .base_url = base_url,

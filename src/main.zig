@@ -36,22 +36,25 @@ pub fn main() !void {
         try migrations.migrateData(conn, 0);
     }
 
-    const sync_db = try xata.init(allocator);
-    defer sync_db.destroy();
-    // try sync_db.migrate();
+    const sync_db = xata.init(allocator);
+    defer if (sync_db) |sync_db_| sync_db_.destroy();
 
-    // Sync the remote and local states
-    {
-        const conn = data_pool.acquire();
-        defer data_pool.release(conn);
+    if (sync_db) |sync_db_| {
+        try sync_db_.migrate();
 
-        if (try conn.row("SELECT timestamp FROM sync", .{})) |row| {
-            const ts = row.int(0);
-            sync_db.sync(ts, &conn) catch {
-                // On error, it probably means we haven't got any data on the server db,
-                // so force an upload
-                try sync_db.upload(&conn);
-            };
+        // Sync the remote and local states
+        {
+            const conn = data_pool.acquire();
+            defer data_pool.release(conn);
+
+            if (try conn.row("SELECT timestamp FROM sync", .{})) |row| {
+                const ts = row.int(0);
+                sync_db_.sync(ts, &conn) catch {
+                    // On error, it probably means we haven't got any data on the server db,
+                    // so force an upload
+                    try sync_db_.upload(&conn);
+                };
+            }
         }
     }
 

@@ -11,6 +11,8 @@ fetches data from the page.
 
 # Install
 
+> NOTE: You might want to setup a [Xata account](https://xata.io/) to store your progress remotely. This is not required.
+
 It has been built with zig 0.13.0 so to install you can do:
 `zig build -Doptimize=ReleaseFast`
 
@@ -51,3 +53,7 @@ These are the current keybinds per `Page`
   [c]        - Change chapter
   [q]        - Quit the app
 ```
+
+# Development
+Install all the required deps using the nix flake `flake.nix` via `direnv allow`
+Create a `API_URL` and `API_KEY` in a `.env` if using `Xata` as your remote postgres db (only stores novels as it's free tier)
