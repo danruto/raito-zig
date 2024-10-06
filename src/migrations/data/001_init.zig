@@ -1,4 +1,5 @@
 const std = @import("std");
+const datetime = @import("../../datetime.zig");
 const migrations = @import("migrations.zig");
 
 const Conn = migrations.Conn;
@@ -32,7 +33,7 @@ pub fn run(conn: Conn) !void {
     try conn.execNoArgs("migration.create.sync",
         \\ CREATE TABLE IF NOT EXISTS sync (
         \\   id INTEGER PRIMARY KEY,
-        \\   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        \\   timestamp STRING NOT NULL
         \\ );
     );
 
@@ -41,6 +42,6 @@ pub fn run(conn: Conn) !void {
         \\ INSERT OR IGNORE INTO sync (id, timestamp) VALUES (?1, ?2);
     , .{
         1,
-        std.time.nanoTimestamp(),
+        &datetime.fromTimestamp(@intCast(std.time.timestamp())).toRFC3339(),
     });
 }

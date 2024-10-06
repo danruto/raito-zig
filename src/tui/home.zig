@@ -75,11 +75,11 @@ fn onKeyHandler(ptr: ?*anyopaque, event: tuile.events.Event) !tuile.events.Event
         .char => |char| switch (char) {
             's' => {
                 // Go to search page only when nothing is focused
-                const input = ctx.tui.findByIdTyped(tuile.Input, "home-input") orelse unreachable;
+                // const input = ctx.tui.findByIdTyped(tuile.Input, "home-input") orelse unreachable;
 
-                if (input.focus_handler.focused) {
-                    return .ignored;
-                }
+                // if (input.focus_handler.focused) {
+                //     return .ignored;
+                // }
 
                 ctx.enabled = false;
 

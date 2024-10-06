@@ -85,3 +85,42 @@ pub fn fromTimestamp(ts: u64) Self {
         .second = @intCast(seconds_since_midnight % 60),
     };
 }
+
+pub fn fromRFC3339(ts: []const u8) !Self {
+    // Simply reverse the toRFC3339 function.
+    const year = try std.fmt.parseInt(u16, ts[0..4], 10);
+    const month = try std.fmt.parseInt(u8, ts[5..7], 10);
+    const day = try std.fmt.parseInt(u8, ts[8..10], 10);
+    const hour = try std.fmt.parseInt(u8, ts[11..13], 10);
+    const minute = try std.fmt.parseInt(u8, ts[14..16], 10);
+    const second = try std.fmt.parseInt(u8, ts[17..19], 10);
+
+    return Self{
+        .year = year,
+        .month = month,
+        .day = day,
+        .hour = hour,
+        .minute = minute,
+        .second = second,
+    };
+}
+
+pub fn greaterThan(self: *const Self, other: Self) bool {
+    if (self.year > other.year) return true;
+    if (self.month > other.month) return true;
+    if (self.day > other.day) return true;
+    if (self.hour > other.hour) return true;
+    if (self.minute > other.minute) return true;
+    if (self.second > other.second) return true;
+
+    return false;
+}
+
+pub const ZERO = Self{
+    .year = 0,
+    .month = 0,
+    .day = 0,
+    .hour = 0,
+    .minute = 0,
+    .second = 0,
+};

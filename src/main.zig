@@ -48,8 +48,10 @@ pub fn main() !void {
             defer data_pool.release(conn);
 
             if (try conn.row("SELECT timestamp FROM sync", .{})) |row| {
-                const ts = row.int(0);
-                sync_db_.sync(ts, &conn) catch {
+                const ts = row.text(0);
+                sync_db_.sync(ts, &conn) catch |err| {
+                    logz.err().ctx("main.xata.sync").string("ts", ts).err(err).log();
+
                     // On error, it probably means we haven't got any data on the server db,
                     // so force an upload
                     try sync_db_.upload(&conn);
