@@ -77,6 +77,10 @@ const XataNovelQuery = struct {
     records: []XataNovel,
 };
 
+const XataQueryRequest = struct {
+    columns: [][]const u8,
+};
+
 const XataSync = struct {
     id: []const u8,
     updated: []const u8,
@@ -103,6 +107,10 @@ pub fn destroy(self: *const Self) void {
 }
 
 fn make_get_req(self: *const Self, comptime T: anytype, url: []const u8) !zul.Managed(T) {
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    const arena_allocator = arena.allocator();
+    defer arena.deinit();
+
     var client = zul.http.Client.init(self.allocator);
     defer client.deinit();
 
@@ -113,10 +121,65 @@ fn make_get_req(self: *const Self, comptime T: anytype, url: []const u8) !zul.Ma
     try req.header("Authorization", self.api_key);
 
     const res = try req.getResponse(.{});
-    if (res.status != 200) return error.InvalidStatusCode;
+    if (res.status != 200) {
+        const sb = try res.allocBody(arena_allocator, .{});
+        defer sb.deinit();
 
-    const res_body = try res.json(T, self.allocator, .{});
+        logz.err().ctx("xata.make_get_req").int("status", res.status).string("body", sb.string()).log();
+
+        return error.InvalidStatusCode;
+    }
+
+    const res_body = res.json(T, self.allocator, .{
+        .ignore_unknown_fields = true,
+    }) catch |err| {
+        const sb = try res.allocBody(arena_allocator, .{});
+        defer sb.deinit();
+
+        logz.err().ctx("xata.make_get_req").err(err).string("body", sb.string()).log();
+        return err;
+    };
+
     return res_body;
+}
+
+fn make_query_req(self: *const Self, comptime T: anytype, url: []const u8, body: XataQueryRequest) !zul.Managed(T) {
+    logz.info().ctx("xata.make_query_req").string("url", url).log();
+
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    const arena_allocator = arena.allocator();
+    defer arena.deinit();
+
+    var client = zul.http.Client.init(self.allocator);
+    defer client.deinit();
+
+    var req = try client.request(url);
+    defer req.deinit();
+
+    req.method = .POST;
+    try req.header("Authorization", self.api_key);
+
+    const s = try std.json.stringifyAlloc(arena_allocator, body, .{});
+    req.body(s);
+
+    const res = try req.getResponse(.{});
+    if (res.status == 200 or res.status == 204 or res.status == 422) {
+        logz.info().ctx("xata.make_query_req").string("message", "successful status code").int("status", res.status).log();
+
+        const res_body = res.json(T, self.allocator, .{
+            .ignore_unknown_fields = true,
+        }) catch |err| {
+            const sb = try res.allocBody(arena_allocator, .{});
+            defer sb.deinit();
+
+            logz.err().ctx("xata.make_get_req").err(err).string("body", sb.string()).log();
+            return err;
+        };
+
+        return res_body;
+    }
+
+    return error.InvalidStatusCode;
 }
 
 fn make_body_req(self: *const Self, method: std.http.Method, url: []const u8, body: anytype) !void {
@@ -332,11 +395,15 @@ pub fn download(self: *const Self, conn: *const zqlite.Conn) !void {
     const url = try std.fmt.allocPrint(self.allocator, "{s}/tables/novels/query", .{self.base_url});
     defer self.allocator.free(url);
 
-    const body = try self.make_get_req(XataNovelQuery, url);
-
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     const arena_allocator = arena.allocator();
     defer arena.deinit();
+
+    var columns = std.ArrayList([]const u8).init(arena_allocator);
+    defer columns.deinit();
+    try columns.append("*");
+    const body = try self.make_query_req(XataNovelQuery, url, XataQueryRequest{ .columns = columns.items });
+    defer body.deinit();
 
     for (body.value.records) |xnovel| {
         const novel = Novel{
@@ -353,15 +420,23 @@ pub fn download(self: *const Self, conn: *const zqlite.Conn) !void {
     }
 }
 
-pub fn sync(self: *const Self, ts: i64, conn: *const zqlite.Conn) !void {
+pub fn sync(self: *const Self, ts: []const u8, conn: *const zqlite.Conn) !void {
     // Pull last sync'd date. If we have newer data, send it up,
     // otherwise update our local `novels` table
     const sync_row = try self.get_by_id(XataSync, "sync", "0");
     defer sync_row.deinit();
 
-    const sync_updated = try std.fmt.parseInt(i64, sync_row.value.updated, 10);
+    logz.info().ctx("xata.sync").string("updated", sync_row.value.updated).string("ts", ts).log();
 
-    if (sync_updated < ts) {
+    const dt = datetime.fromRFC3339(sync_row.value.updated) catch datetime.ZERO;
+    const local_dt = datetime.fromRFC3339(ts) catch datetime.ZERO;
+
+    // const should_upload = local_dt.greaterThan(dt);
+    const should_upload = false;
+
+    logz.info().ctx("xata.sync").boolean("should_upload", should_upload).string("dt", &dt.toRFC3339()).string("local_dt", &local_dt.toRFC3339()).log();
+
+    if (should_upload) {
         // If we are newer, force an update
         try self.upload(conn);
     } else {
