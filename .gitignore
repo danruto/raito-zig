@@ -8,3 +8,8 @@ raito.db
 *-shm
 *-wal
 .env
+
+.env*
+.flaskenv*
+!.env.project
+!.env.vault
